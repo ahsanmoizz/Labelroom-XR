@@ -1,0 +1,750 @@
+{
+  "product": "LabelRoom XR",
+  "scopeVersion": "1.0.0",
+  "features": [
+    {
+      "id": "F01",
+      "name": "Import real data",
+      "acceptance": "Permanent user uploads a validated supported scan bundle; reject unsafe or unsupported data clearly.",
+      "phase": "A",
+      "tests": "DATA-01, DATA-02"
+    },
+    {
+      "id": "F02",
+      "name": "Private projects",
+      "acceptance": "Email OTP sign-in; owner-only files, project list, 3-project quota, resume and delete.",
+      "phase": "B",
+      "tests": "SEC-01, AUTH-01"
+    },
+    {
+      "id": "F03",
+      "name": "Hands review workspace",
+      "acceptance": "Seated point-cloud scene; ray select, isolate, frame step, reset, depth views and readable panel.",
+      "phase": "C",
+      "tests": "XR-01, PERF-01"
+    },
+    {
+      "id": "F04",
+      "name": "Find review candidates",
+      "acceptance": "Three geometry checks: low support, near-duplicate boxes, abrupt dimension change. Explain uncertainty.",
+      "phase": "D",
+      "tests": "GEO-02, CHECK-01"
+    },
+    {
+      "id": "F05",
+      "name": "Bounded AI assistant",
+      "acceptance": "Live model calls allowlisted inspection tools; shows measurements, focus and a proposal. Never applies edits.",
+      "phase": "D",
+      "tests": "AI-01, AI-02"
+    },
+    {
+      "id": "F06",
+      "name": "Correct or keep a label",
+      "acceptance": "Manual position/size/yaw steps or fit preview; keep with reason, remove confirmed duplicate in current frame, approve/reject; undo supported.",
+      "phase": "C/D",
+      "tests": "EDIT-01, GEO-03"
+    },
+    {
+      "id": "F07",
+      "name": "Save and undo",
+      "acceptance": "Atomic versioned save with audit, last-edit undo, refresh resume, conflict and network recovery.",
+      "phase": "B/D",
+      "tests": "SAVE-01, SAVE-02"
+    },
+    {
+      "id": "F08",
+      "name": "Usable export",
+      "acceptance": "Corrected OpenLABEL subset + audit + unchanged point clouds + metadata + hashes; reimport and validate.",
+      "phase": "D",
+      "tests": "EXPORT-01"
+    },
+    {
+      "id": "F09",
+      "name": "No-signup judge demo",
+      "acceptance": "Real licensed clip with disclosed injected faults; anonymous session, reset; live tools, edits, save and export.",
+      "phase": "B/E",
+      "tests": "DEMO-01"
+    },
+    {
+      "id": "F10",
+      "name": "Release quality",
+      "acceptance": "Clear errors/help/privacy, tested performance/security, real reviewer evidence and truthful submission.",
+      "phase": "E/F",
+      "tests": "USER-01, RELEASE-01"
+    }
+  ],
+  "files": [
+    {
+      "path": "src/index.ts",
+      "phase": "A",
+      "inputs": "HTML container + generated project options",
+      "outputs": "Initialized IWSDK world and registered application systems",
+      "steps": "Keep World.create(container, projectOptions). After Phase C register ReviewSystem, PanelSystem and HandSystem. Start desktop account flow. Dispose subscriptions on teardown.",
+      "fail": "Show initialization failure; never leave a silent blank page.",
+      "test": "XR-01",
+      "status": "starter"
+    },
+    {
+      "path": "src/assets.ts",
+      "phase": "C",
+      "inputs": "Static UI URLs and component-free prototypes",
+      "outputs": "Deterministic asset registry",
+      "steps": "Use defineAssets; register review-panel only after review.uikitml exists. Import Three classes from @iwsdk/core. No DOM, network, timers or user data in this module.",
+      "fail": "Missing panel ID is a startup failure.",
+      "test": "XR-01",
+      "status": "starter"
+    },
+    {
+      "path": "src/components.ts",
+      "phase": "C",
+      "inputs": "ReviewTarget component declaration",
+      "outputs": "Component registry",
+      "steps": "Export defineComponents([ReviewTarget]); keep declarations system-free. This lets editor and runtime see the same component.",
+      "fail": "Do not declare components inside systems.",
+      "test": "XR-01",
+      "status": "starter"
+    },
+    {
+      "path": "src/app/config.ts",
+      "phase": "B",
+      "inputs": "VITE public environment",
+      "outputs": "Validated public app settings",
+      "steps": "Require HTTPS Supabase URL and publishable key in deployed app. Local scaffold may show setup help. Do not accept service_role or private provider keys.",
+      "fail": "Missing env gives an explicit setup screen.",
+      "test": "SEC-01",
+      "status": "planned"
+    },
+    {
+      "path": "src/app/store.ts",
+      "phase": "B",
+      "inputs": "Auth/project/frame/selection state",
+      "outputs": "Single typed state and subscriptions",
+      "steps": "Store source labels and proposed draft separately. State machine: idle \u2192 loading \u2192 ready \u2192 proposed \u2192 saving \u2192 ready; errors and conflicted are explicit states. Change frame invalidates proposals.",
+      "fail": "Never call a local draft Saved before server acknowledgement.",
+      "test": "SAVE-01",
+      "status": "planned"
+    },
+    {
+      "path": "src/app/lifecycle.ts",
+      "phase": "C",
+      "inputs": "XR visibility + session events",
+      "outputs": "Pause/resume and cleanup",
+      "steps": "Blur cancels active pinch, stops agent calls and retains source/project state. Session end returns to desktop status. Resume must not apply the held click.",
+      "fail": "Missing hands freezes editing and offers reset; do not auto-confirm.",
+      "test": "XR-01",
+      "status": "planned"
+    },
+    {
+      "path": "src/domain/coordinates.ts",
+      "phase": "A",
+      "inputs": "Source xyz vectors",
+      "outputs": "IWSDK vectors and inverse",
+      "steps": "Use (x,y,z) \u2192 (x,z,-y). Apply scene recenter/scale only in view transforms. Export is always source coordinates.",
+      "fail": "Reject non-finite numbers before geometry.",
+      "test": "GEO-01",
+      "status": "ready"
+    },
+    {
+      "path": "src/domain/limits.ts",
+      "phase": "A",
+      "inputs": "Sealed ceiling values",
+      "outputs": "Shared limits",
+      "steps": "Keep all runtime limits here. Worker, upload UI and edge contract must mirror these values. Production ceilings cannot silently increase.",
+      "fail": "Oversize is rejected, never silently truncated.",
+      "test": "DATA-02",
+      "status": "ready"
+    },
+    {
+      "path": "src/domain/schema.ts",
+      "phase": "A",
+      "inputs": "Manifest, OpenLABEL subset, tool and mutation JSON",
+      "outputs": "Zod parsed objects",
+      "steps": "Require schemaVersion 1.0, unique frame/object IDs, finite numbers, increasing times, upright normalized xyzw quaternion, all listed file hashes. Preserve unknown label metadata.",
+      "fail": "Return file + object + field error. No coercion of malformed labels.",
+      "test": "DATA-01",
+      "status": "planned"
+    },
+    {
+      "path": "src/domain/geometry.ts",
+      "phase": "A/D",
+      "inputs": "Source box + source points",
+      "outputs": "Inside-box checks, yaw conversions and valid geometry",
+      "steps": "Extend existing helpers with oriented rectangle clipping, signed area, height overlap and IoU. Boundary epsilon 1e-6. Geometry operates in metres.",
+      "fail": "Reject zero volume, NaN and pitch/roll.",
+      "test": "GEO-01, GEO-02",
+      "status": "partial"
+    },
+    {
+      "path": "src/domain/revision.ts",
+      "phase": "B",
+      "inputs": "Project revision + client mutation UUID",
+      "outputs": "Validated versioned edit command",
+      "steps": "Proposal carries baseRevision, frameId, objectId, before, after and reason. Request ID retries must return same server result. Last-edit undo references target mutation. Allowed operations: updateCuboid, keepIssue, removeDuplicate, undo. removeDuplicate requires an existing same-class partner with IoU>=0.90; remove only that frame occurrence, retain global metadata.",
+      "fail": "Reject stale version and nonlatest undo.",
+      "test": "SAVE-01",
+      "status": "planned"
+    },
+    {
+      "path": "src/data/zip.ts",
+      "phase": "A",
+      "inputs": "User ZIP bytes",
+      "outputs": "Validated member map",
+      "steps": "Read ZIP directory first; allow manifest.json, labels.openlabel.json, frames/NNN.pcd and licence/attribution text only. Optional audit.json/review.json are allowed for reimport; imported audit is historical metadata, never trusted authorization. Maximum20 entries. No nested archives, path traversal, symlinks or duplicate names. Stream decompression with cumulative cap.",
+      "fail": "Abort above 25MiB compressed /40MiB expanded; never inflate whole untrusted archive first.",
+      "test": "DATA-02",
+      "status": "planned"
+    },
+    {
+      "path": "src/data/pcd.ts",
+      "phase": "A",
+      "inputs": "Canonical binary PCD bytes",
+      "outputs": "Float32 XYZ array",
+      "steps": "Strict header: FIELDS x y z; SIZE 4 4 4; TYPE F F F; COUNT 1 1 1; HEIGHT 1; DATA binary; little endian. Verify byte count and finite values.",
+      "fail": "Reject compressed PCD/extra fields at runtime; offline converter handles supported input.",
+      "test": "DATA-01",
+      "status": "planned"
+    },
+    {
+      "path": "src/data/openlabel.ts",
+      "phase": "A",
+      "inputs": "Original label document",
+      "outputs": "Normalized frame boxes and preserved document",
+      "steps": "Parse frame object cuboid val [x,y,z,qx,qy,qz,qw,sx,sy,sz]. One named cuboid bbox per object/frame. Map to internal Box. Keep unrelated JSON unchanged.",
+      "fail": "Reject ambiguity, missing frame timestamps and unsupported rotations.",
+      "test": "DATA-01",
+      "status": "planned"
+    },
+    {
+      "path": "src/data/bundle.ts",
+      "phase": "A",
+      "inputs": "Member map + parsed schemas",
+      "outputs": "Immutable project source and provenance",
+      "steps": "Verify SHA-256 before parse; check every frame reference, IDs and counts; validate source licence declaration; compute bundle hash. Keep original bytes separately.",
+      "fail": "Hash mismatch or missing rights declaration stops import.",
+      "test": "DATA-01, SEC-01",
+      "status": "planned"
+    },
+    {
+      "path": "src/data/export.ts",
+      "phase": "D",
+      "inputs": "Committed revision + original members + audit",
+      "outputs": "Downloadable corrected .lrx.zip",
+      "steps": "Copy original document; replace only approved cuboid vals. Keep object IDs/classes/attributes and point bytes. Add audit.json and review.json; recompute manifest hashes. Download desktop or provide owner-signed download link for Quest. For approved duplicate removal omit only the current frame object occurrence; keep global object metadata and all other frames. Undo restores it exactly.",
+      "fail": "Block export while save pending; offer clearly labelled draft recovery separately.",
+      "test": "EXPORT-01",
+      "status": "planned"
+    },
+    {
+      "path": "src/data/draft-cache.ts",
+      "phase": "B",
+      "inputs": "Pending edit + source hash",
+      "outputs": "IndexedDB recovery record",
+      "steps": "Persist one pending mutation before RPC. Restore on reload only if same user/project/hash. Clear only after server ACK or explicit discard. Never cache access tokens here.",
+      "fail": "Quota failure warns and blocks edit until recovery choice.",
+      "test": "SAVE-02",
+      "status": "planned"
+    },
+    {
+      "path": "src/services/supabase.ts",
+      "phase": "B",
+      "inputs": "Validated public env",
+      "outputs": "Auth/storage client",
+      "steps": "Create one client with publishable key. Keep session refresh supported; use user JWT for functions. Validate current user before file and RPC calls.",
+      "fail": "Auth expiration clears rendered private data and requires sign-in.",
+      "test": "AUTH-01",
+      "status": "planned"
+    },
+    {
+      "path": "src/services/auth.ts",
+      "phase": "B",
+      "inputs": "Email, OTP and CAPTCHA token",
+      "outputs": "Permanent or demo auth session",
+      "steps": "signInWithOtp then verifyOtp(type email). Guest uses signInAnonymously with CAPTCHA. Never upgrade guest implicitly; explain demo resets on sign-out. Permanent project upload checks nonanonymous identity.",
+      "fail": "Rate limit/captcha/mail failures show a retry and maintain no private session.",
+      "test": "AUTH-01, DEMO-01",
+      "status": "planned"
+    },
+    {
+      "path": "src/services/projects.ts",
+      "phase": "B",
+      "inputs": "User + validated bundle",
+      "outputs": "Project CRUD and original source storage",
+      "steps": "Call authenticated project-admin edge endpoint to reserve quota, stage upload, finalize metadata/hash, and clean failed staging. Resume reads latest label version. Delete uses repeatable staged cleanup.",
+      "fail": "Failed upload must not leave a ready project or consume quota forever.",
+      "test": "SEC-01, SAVE-02",
+      "status": "planned"
+    },
+    {
+      "path": "src/services/reviews.ts",
+      "phase": "B/D",
+      "inputs": "Validated mutation",
+      "outputs": "Committed revision and audit record",
+      "steps": "Call commit_review RPC, pass request UUID/base revision, then replace store from acknowledged version. On 409 conflict reload or download draft. Undo calls same RPC with inverse and reference.",
+      "fail": "Network uncertainty: retry same ID, do not issue a second edit.",
+      "test": "SAVE-01, SAVE-02",
+      "status": "planned"
+    },
+    {
+      "path": "src/services/agent.ts",
+      "phase": "D",
+      "inputs": "Consent + project context + tool transcript",
+      "outputs": "One validated agent step",
+      "steps": "POST agent edge endpoint with JWT and bounded data; execute allowed local worker tools, send bounded structured results, repeat max 3 rounds. Stop on proposal/final response/timeout.",
+      "fail": "No fake model response when unavailable; measurements and manual review remain usable.",
+      "test": "AI-01, AI-02",
+      "status": "planned"
+    },
+    {
+      "path": "src/services/demo.ts",
+      "phase": "B/E",
+      "inputs": "Anonymous JWT + approved demo source",
+      "outputs": "One private demo project per anonymous user",
+      "steps": "Backend clones only allowlisted public demo source, uses known provenance and disclosed corruption file. Reset replaces demo review state with baseline; does not touch another project.",
+      "fail": "Guest cannot upload arbitrary data or create more than one demo.",
+      "test": "DEMO-01",
+      "status": "planned"
+    },
+    {
+      "path": "src/workers/review.worker.ts",
+      "phase": "A/D",
+      "inputs": "Typed jobs with jobId + revision",
+      "outputs": "Analysis or proposal result",
+      "steps": "Run parsing, index building and geometry off render thread. Cancel older epoch on frame switch; only accept results matching active project/frame/revision. Use transferable buffers with clear ownership.",
+      "fail": "Error returns typed error; stale job cannot overwrite current selection.",
+      "test": "CHECK-01, PERF-01",
+      "status": "planned"
+    },
+    {
+      "path": "src/workers/protocol.ts",
+      "phase": "A",
+      "inputs": "Main/worker typed messages",
+      "outputs": "Allowlisted jobs and bounded payloads",
+      "steps": "Jobs: loadFrame, listIssues, inspectBoxSupport, compareTrack, proposeFit. Outputs carry source hash, revision and numeric evidence. Validate both boundaries.",
+      "fail": "Unknown job/object/frame rejected.",
+      "test": "AI-02",
+      "status": "planned"
+    },
+    {
+      "path": "src/workers/spatial-index.ts",
+      "phase": "D",
+      "inputs": "XYZ point array",
+      "outputs": "XY 2-metre cell grid",
+      "steps": "Index point IDs once per frame; box AABB visits relevant cells before oriented inside test. Release old index when new frame committed.",
+      "fail": "No retained arrays across project deletion.",
+      "test": "PERF-01",
+      "status": "planned"
+    },
+    {
+      "path": "src/workers/checks.ts",
+      "phase": "D",
+      "inputs": "Boxes, points, adjacent frames",
+      "outputs": "Sorted candidate list with evidence",
+      "steps": "LOW_SUPPORT count<5; DUPLICATE same-class different IDs IoU>=0.90; DIMENSION_JUMP >20% size ratio change with 0<dt<=1 second. Sort type then severity then object ID deterministically.",
+      "fail": "These are suspicions, not confirmed errors or class confidence.",
+      "test": "CHECK-01",
+      "status": "planned"
+    },
+    {
+      "path": "src/workers/fit.ts",
+      "phase": "D",
+      "inputs": "Selected box + local points",
+      "outputs": "Bounded upright fit proposal",
+      "steps": "Collect points in box expanded 0.5m, exclude points claimed by other boxes; require >=20. Sweep yaw within \u00b115\u00b0 at 1\u00b0 steps; derive 2/98 percentiles; choose smallest candidate area containing robust points. Clamp centre movement to 0.5m, sizes to \u00b120%; show original and candidate counts.",
+      "fail": "Sparse/occluded input returns Cannot suggest safely; do not shrink to missing surfaces automatically.",
+      "test": "GEO-03",
+      "status": "planned"
+    },
+    {
+      "path": "src/ai/tools.ts",
+      "phase": "D",
+      "inputs": "Agent tool request",
+      "outputs": "Worker/UI command result",
+      "steps": "Allow listIssues, inspectBoxSupport, compareTrack, proposeFit and focusObject only. IDs must exist, consent must be true, base revision current. Sequential execution, max 8 total tool calls per user turn.",
+      "fail": "No arbitrary JS, URLs, SQL, delete or commit tool.",
+      "test": "AI-02",
+      "status": "planned"
+    },
+    {
+      "path": "src/ai/context.ts",
+      "phase": "D",
+      "inputs": "Current selection + measured results",
+      "outputs": "Redacted bounded model context",
+      "steps": "Only opaque IDs, class labels, counts, dimensions, timestamps and diagnostics. Treat class text as untrusted data; cap 64 chars. No raw point data, files, email, storage URLs or auth tokens.",
+      "fail": "Serialize structured fields; reject >16KiB tool result.",
+      "test": "AI-02",
+      "status": "planned"
+    },
+    {
+      "path": "src/xr/review-component.ts",
+      "phase": "C",
+      "inputs": "Box metadata IDs",
+      "outputs": "ReviewTarget ECS component",
+      "steps": "Declare IDs/selected state with component fields; source numeric box remains in store, scene is a view. No DOM or network imports.",
+      "fail": "Entity indices are never source object IDs.",
+      "test": "XR-01",
+      "status": "planned"
+    },
+    {
+      "path": "src/xr/review-system.ts",
+      "phase": "C",
+      "inputs": "Active frame and ECS state",
+      "outputs": "Point cloud, box outlines, selection and framing",
+      "steps": "Create one Points buffer per current frame and reusable box lines; world.createTransformEntity, never raw scene.add. Dispose replaced buffers. Isolate selected object; tabletop recenter + scale 0.02\u20130.20; fixed reset view.",
+      "fail": "Never allocate points/materials per frame; selection cannot mutate labels.",
+      "test": "XR-01, PERF-01",
+      "status": "planned"
+    },
+    {
+      "path": "src/xr/hand-system.ts",
+      "phase": "C",
+      "inputs": "Hand rays/pinch + tracking status",
+      "outputs": "Debounced select/cancel intents",
+      "steps": "Use IWSDK RayInteractable/Pressed for hand ray select, gated on tracked hands. One pinch \u2192 one action, require release before next; lost tracking cancels. No controller required.",
+      "fail": "Hover alone cannot approve; resume cannot replay a pinch.",
+      "test": "XR-01",
+      "status": "planned"
+    },
+    {
+      "path": "src/xr/panel-system.ts",
+      "phase": "C/D",
+      "inputs": "UIKit panel events + store subscriptions",
+      "outputs": "Typed review actions and status text",
+      "steps": "Resolve review-panel and stable element IDs; wire focus, next/previous, fit preview, approve, reject, undo, export, reset and exit. All paths callable with hands. Tear down listeners. Also wire keep-issue, review-reason and remove-duplicate with a separate confirmation showing both IDs.",
+      "fail": "Disable approve while saving/stale/invalid; show units and revision.",
+      "test": "EDIT-01, XR-01",
+      "status": "planned"
+    },
+    {
+      "path": "src/ui/desktop.ts",
+      "phase": "B/C",
+      "inputs": "Auth/import/project state",
+      "outputs": "DOM workspace controls",
+      "steps": "Render OTP, file chooser and project management; desktop review uses same commands/store as XR. No separate geometry or save logic. Upload may happen on laptop then reopen same project on Quest.",
+      "fail": "Provide no-signup Try demo entry before authentication.",
+      "test": "AUTH-01, DEMO-01",
+      "status": "planned"
+    },
+    {
+      "path": "src/ui/accessibility.ts",
+      "phase": "C/E",
+      "inputs": "Text scale/contrast/user settings",
+      "outputs": "Comfortable persistent UI settings",
+      "steps": "Default large readable text, labels/icons in addition to colour, left/right hand support, focus order on desktop. Position critical controls within \u00b125\u00b0 horizontally and \u00b120\u00b0 vertically; panel around 0.65m wide at 0.8m distance.",
+      "fail": "Do not claim eyes-only/voice accessibility; no voice input in scope.",
+      "test": "XR-01",
+      "status": "planned"
+    },
+    {
+      "path": "public/ui/review.uikitml",
+      "phase": "C",
+      "inputs": "Panel layout",
+      "outputs": "Native spatial UI asset",
+      "steps": "IDs: status, frame-prev, frame-next, focus, isolate, reset-view, inspect, fit-preview, approve, reject, undo, export, exit, edit-axis, edit-step, edit-minus, edit-plus. Buttons at least 3cm high; source units always visible. Additional IDs: keep-issue, review-reason, remove-duplicate, confirm-duplicate. Reason chips: occlusion, valid-geometry, duplicate, other.",
+      "fail": "Validate UIKitML syntax; it is not a full browser CSS engine.",
+      "test": "XR-01",
+      "status": "planned"
+    },
+    {
+      "path": "public/scenes/main.iwsdk.scene.json",
+      "phase": "C",
+      "inputs": "Static panel manifest ID",
+      "outputs": "Seated scene",
+      "steps": "Flat iwsdk.scene.v1, origin free, review panel near [0,1.35,-0.8]. No locomotion, anchors, passthrough or physics. Dynamic point cloud is owned by ReviewSystem.",
+      "fail": "Panel faces viewer; validate on real Quest as well as editor.",
+      "test": "XR-01",
+      "status": "starter"
+    },
+    {
+      "path": "supabase/migrations/202610100001_core.sql",
+      "phase": "B",
+      "inputs": "Schema contract",
+      "outputs": "Tables, indexes, bucket policies and RLS",
+      "steps": "Create projects, label_versions, mutations, agent_turns and daily_budget; immutable originals and label revisions. Owner checks on all tables/buckets. No direct client inserts/updates into versions/mutations/budget.",
+      "fail": "Test two accounts and anonymous claims. Public demo source is separate allowlisted content.",
+      "test": "SEC-01",
+      "status": "planned"
+    },
+    {
+      "path": "supabase/migrations/202610100002_review.sql",
+      "phase": "B/D",
+      "inputs": "Authenticated edit command",
+      "outputs": "commit_review atomic RPC",
+      "steps": "SECURITY DEFINER fixed search_path, require auth.uid; lock project row; compare revision; validate box/range/object; append new label snapshot + audit; update revision in same transaction. unique(owner,request_id) for retries. Restrict execute to authenticated role. Only updateCuboid, keepIssue, removeDuplicate and undo are accepted. Verify duplicate partner/IoU server-side or trusted independently computed stored report; never trust caller-reported IoU. Frame occurrence removal is audited, not hard deletion of provenance.",
+      "fail": "Rollback all on failure; reject unauthorised owner, arbitrary operations and invalid undo.",
+      "test": "SAVE-01, SEC-01",
+      "status": "planned"
+    },
+    {
+      "path": "supabase/migrations/202610100003_agent_budget.sql",
+      "phase": "D",
+      "inputs": "UID/day + requested operation",
+      "outputs": "Atomic budget reservations",
+      "steps": "reserve_ai_budget locks UTC day counter, checks 3 guest/30 member turns, 300 global model calls/day. Charge each provider call, return reset time; server-only budget writes.",
+      "fail": "No race can exceed counters; limits independent of client clock.",
+      "test": "AI-02",
+      "status": "planned"
+    },
+    {
+      "path": "supabase/functions/_shared/auth.ts",
+      "phase": "B",
+      "inputs": "Authorization JWT",
+      "outputs": "Verified Supabase user and anonymous status",
+      "steps": "Use auth.getUser(token), check success before any privileged action; derive UID from returned user, never caller body. Keep gateway verify_jwt=true for user-facing endpoints, and verify the user explicitly before privileged work.",
+      "fail": "Missing/expired/forged JWT \u2192 401 before provider/storage calls.",
+      "test": "SEC-01",
+      "status": "planned"
+    },
+    {
+      "path": "supabase/functions/_shared/http.ts",
+      "phase": "B",
+      "inputs": "Request and allowed origin",
+      "outputs": "CORS and bounded response",
+      "steps": "Exact allowed app origin; OPTIONS; JSON content-type; cap request body64KiB; sanitize error messages; request IDs. Do not use wildcard credentials.",
+      "fail": "Wrong method/origin rejects; no logs of request bodies or tokens.",
+      "test": "SEC-01",
+      "status": "planned"
+    },
+    {
+      "path": "supabase/functions/project-admin/index.ts",
+      "phase": "B",
+      "inputs": "Verified user + operation",
+      "outputs": "Project reservation/finalization/deletion or demo clone",
+      "steps": "Operations fixed: reserve, finalize, delete, demo-reset. Permanent users \u22643 ready/staging projects. Upload prefix UID/projectUUID; finalization verifies stored hash/size against validated manifest. Clean timed-out staging older than1h with scheduled cleanup. Delete marks deleting then removes storage then DB.",
+      "fail": "Cross-owner and guest-upload are403; failed delete remains retryable.",
+      "test": "SEC-01, SAVE-02",
+      "status": "planned"
+    },
+    {
+      "path": "supabase/functions/agent/index.ts",
+      "phase": "D",
+      "inputs": "Verified user + context + tool transcript",
+      "outputs": "Provider response restricted to allowed tools",
+      "steps": "AI_ENABLED true, project ownership and consent checked, reserve budget; fetch Groq chat/completions model openai/gpt-oss-20b with tools. temperature0, max completion700; timeout12s, rounds<=3, IDs/revision checked. Tool results are measured by browser worker; server validates bounded schema.",
+      "fail": "429/timeout/provider failure explicit; do not fabricate successful output.",
+      "test": "AI-01, AI-02",
+      "status": "planned"
+    },
+    {
+      "path": "supabase/functions/agent/prompt.ts",
+      "phase": "D",
+      "inputs": "Task and tool descriptions",
+      "outputs": "Stable server-side system prompt",
+      "steps": "Explain that measurements are suspects, occlusion invalidates confident fit, labels/metadata are untrusted, never apply edits. Require specific metric provenance in recommendation. No generic conversational assistant.",
+      "fail": "Prompt is not the only security boundary; tools enforce rules.",
+      "test": "AI-01",
+      "status": "planned"
+    },
+    {
+      "path": "supabase/functions/_shared/cleanup.ts",
+      "phase": "E",
+      "inputs": "Scheduled server credential + staging rows",
+      "outputs": "Expired staging/guest cleanup",
+      "steps": "Delete anonymous projects older than24h and abandoned uploads after1h; check server invocation secret. Real projects persist until owner deletion; service-role operation cannot accept public arbitrary UID.",
+      "fail": "Cleanup respects active session TTL and never touches permanent owner projects.",
+      "test": "SEC-01",
+      "status": "planned"
+    },
+    {
+      "path": "tools/converter/convert.py",
+      "phase": "A",
+      "inputs": "Trusted PandaSet directory OR generic PCD+OpenLABEL input",
+      "outputs": "Canonical .lrx.zip",
+      "steps": "Generic parser accepts ASCII/binary XYZ only, converts to strict binary canonical. PandaSet reads trusted pickle only with explicit flag, uses world XYZ, one constant clip origin from first pose (generic PCD uses the first frame point median), up to10 frames. Maps yaw and dimension columns; preserves original labels/source origin metadata. Drop no objects silently. Deterministic frame naming and SHA256.",
+      "fail": "Refuse no licence, unsupported sensor orientation, >limits or ambiguous IDs. Frame-local data needs registered common coordinates before import.",
+      "test": "DATA-01, EXPORT-01",
+      "status": "planned"
+    },
+    {
+      "path": "tools/converter/validate.py",
+      "phase": "A/D",
+      "inputs": "Exported canonical bundle",
+      "outputs": "Independent error list or success",
+      "steps": "Python stdlib/NumPy parser independently validates hashes/header/IDs/counts/quaternions/times. Reconstruct source-world boxes from clip origin and compare with expected approved edits.",
+      "fail": "Fail nonzero, no silent correction. Do not share frontend geometry implementation.",
+      "test": "EXPORT-01",
+      "status": "planned"
+    },
+    {
+      "path": "tools/converter/make_demo.py",
+      "phase": "E",
+      "inputs": "Licensed real converted clip + disclosed fault config",
+      "outputs": "Demo bundle and reference answer file",
+      "steps": "Keep points unchanged; inject known 0.4m box offset, duplicate box and one-frame size jump. Mark each artificial edit in review-demo-faults.json. Retain untouched source for comparison.",
+      "fail": "Never describe injected defects as discovered natural dataset errors.",
+      "test": "DEMO-01, USER-01",
+      "status": "planned"
+    },
+    {
+      "path": "tools/converter/test_converter.py",
+      "phase": "A/D",
+      "inputs": "Independent small fixtures",
+      "outputs": "Python unittest assertions",
+      "steps": "Test ASCII and binary PCD, timestamp ordering, dtype/endianness, origin roundtrip and label metadata preservation. Test corrupt input exits nonzero.",
+      "fail": "No tests that only import code without checking numerical output.",
+      "test": "DATA-01, EXPORT-01",
+      "status": "planned"
+    },
+    {
+      "path": "tests/unit/data.test.ts",
+      "phase": "A",
+      "inputs": "Malformed and valid bundles",
+      "outputs": "Parser tests",
+      "steps": "Minimal valid real-shaped fixture plus bad hashes, ZIP bomb cap, traversal, duplicate names, 11frames, NaN, rolled quaternion and unknown metadata roundtrip.",
+      "fail": "Do not use an unsafe full-size ZIP bomb to test caps.",
+      "test": "DATA-01, DATA-02",
+      "status": "planned"
+    },
+    {
+      "path": "tests/unit/geometry.test.ts",
+      "phase": "A/D",
+      "inputs": "Known asymmetric geometry",
+      "outputs": "Numerical assertions",
+      "steps": "Extend supplied tests for rotated IoU edge cases; dimensions jump dt boundary; sparse/occluded fit refuses; 20-point minimum. Property tests use deterministic seeds.",
+      "fail": "AABB-only IoU must fail rotated cases.",
+      "test": "GEO-01, GEO-02, GEO-03",
+      "status": "partial"
+    },
+    {
+      "path": "tests/unit/review.test.ts",
+      "phase": "B/D",
+      "inputs": "State events and revisions",
+      "outputs": "State-machine tests",
+      "steps": "Preview cannot change source; reject unchanged; approve once; pending vs saved; undo inverse; stale frame/worker result ignored.",
+      "fail": "Test errors and races, not only happy path.",
+      "test": "EDIT-01, SAVE-01",
+      "status": "planned"
+    },
+    {
+      "path": "tests/unit/agent.test.ts",
+      "phase": "D",
+      "inputs": "Fake provider responses, not fake product claims",
+      "outputs": "Tool boundary tests",
+      "steps": "Unknown tool, nonexistent ID, prompt injection, stale revision, oversized output, fourth round, budget response and timeout. Assert no save/delete side effects.",
+      "fail": "Mock tests are separate from live-provider evidence.",
+      "test": "AI-02",
+      "status": "planned"
+    },
+    {
+      "path": "tests/e2e/review.spec.ts",
+      "phase": "D/E",
+      "inputs": "Staging UI + known bundle",
+      "outputs": "Desktop end-to-end evidence",
+      "steps": "Sign in real test users; import, select, preview, reject, approve, reload, undo, export and reimport. Test duplicated click, frame switch and offline recovery.",
+      "fail": "Never run destructive integration scenarios on judge production.",
+      "test": "EXPORT-01, SAVE-02",
+      "status": "planned"
+    },
+    {
+      "path": "tests/e2e/security.spec.ts",
+      "phase": "B/E",
+      "inputs": "Two staging accounts + anonymous + raw HTTP",
+      "outputs": "Auth/RLS evidence",
+      "steps": "Try other users project IDs/storage signed URLs, direct table writes, forged JWT and guest upload. Assert DB state unchanged and provider call count zero.",
+      "fail": "401/403 alone insufficient if privileged work already happened.",
+      "test": "SEC-01",
+      "status": "planned"
+    },
+    {
+      "path": "tests/e2e/demo.spec.ts",
+      "phase": "E",
+      "inputs": "Fresh anonymous browser",
+      "outputs": "Judge path evidence",
+      "steps": "CAPTCHA works inside QuestBrowser; one-click demo, tutorial, hands path manual companion, persisted demo export, reset and quota messages.",
+      "fail": "No email or payment requested in judge demo.",
+      "test": "DEMO-01",
+      "status": "planned"
+    },
+    {
+      "path": "tests/sql/review.sql",
+      "phase": "B/D",
+      "inputs": "Staging database",
+      "outputs": "Transaction and RLS checks",
+      "steps": "Use transaction rollback fixtures with explicit SQL assertions in a BEGIN/ROLLBACK transaction (no pgTAP installation required) for owner access, bad geometry, idempotent request UUID, simultaneous CAS and atomic undo. Never apply production destructive tests.",
+      "fail": "Service-role-only tests cannot prove RLS; set test-user JWT claims.",
+      "test": "SAVE-01, SEC-01",
+      "status": "planned"
+    },
+    {
+      "path": "tests/manual/quest.md",
+      "phase": "C/E",
+      "inputs": "Actual Quest3 + tester",
+      "outputs": "Versioned hands/performance evidence",
+      "steps": "Record model/browser/version/commit, controller unpaired, seated range, click paths, tracking loss, sleep/resume, max dataset,10min profiling and export retrieval.",
+      "fail": "Emulator result cannot replace headset result.",
+      "test": "XR-01, PERF-01",
+      "status": "planned"
+    },
+    {
+      "path": "tests/manual/reviewer-study.csv",
+      "phase": "E",
+      "inputs": "3 consenting ML/data reviewers \u00d76 matched tasks",
+      "outputs": "Raw time/accuracy/ease evidence",
+      "steps": "Alternate desktop/VR task order, do not reuse same answers; score against independent reference. Log errors and fatigue, no invented speedup.",
+      "fail": "Small study supports limited evidence only.",
+      "test": "USER-01",
+      "status": "planned"
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "phase": "A/E",
+      "inputs": "Pull request/push",
+      "outputs": "Repeatable scaffold/product CI",
+      "steps": "Node24.19.0 npm ci, typecheck, unit, build, production audit; uv sync frozen + unittest after converter exists. Deno check for implemented Edge entry points. Separate staging job for account/RLS tests; no provider key exposed to fork PRs.",
+      "fail": "Do not run nonexistent tests as a green product gate.",
+      "test": "RELEASE-01",
+      "status": "planned"
+    },
+    {
+      "path": "scripts/deploy.ps1",
+      "phase": "F",
+      "inputs": "Clean verified commit + staging gate evidence",
+      "outputs": "Production Pages/Edge release",
+      "steps": "Run release gate, confirm remote main commit, supabase linked production project ID exact, migrations preflight, deploy edge auth-verified code, build Pages with public env only. Dashboard git integration deploys same SHA.",
+      "fail": "No automatic paid resource creation; refuse wrong project or dirty working tree.",
+      "test": "RELEASE-01",
+      "status": "planned"
+    },
+    {
+      "path": "supabase/config.toml",
+      "phase": "B",
+      "inputs": "Staging/production CLI settings",
+      "outputs": "Edge function deployment config",
+      "steps": "npx supabase init once; configure agent/project-admin verify_jwt=true. The separate cleanup endpoint uses server-secret authentication, never a public user mode. No filled secrets here.",
+      "fail": "No deployment of placeholder endpoints. Never disable user-facing JWT verification as a workaround for an authorization error.",
+      "test": "SEC-01",
+      "status": "planned"
+    },
+    {
+      "path": "docs/privacy.html",
+      "phase": "E",
+      "inputs": "Actual data and provider flow",
+      "outputs": "Readable privacy statement",
+      "steps": "Owner controls deletion; points kept in private storage, only measured context goes to Groq after opt-in; provider policies linked; guest data24h cleanup. State no sensitive scans in demo.",
+      "fail": "Do not promise provider zero retention without setting and evidence.",
+      "test": "SEC-01",
+      "status": "planned"
+    },
+    {
+      "path": "docs/help.html",
+      "phase": "E",
+      "inputs": "Sealed support matrix and troubleshooting",
+      "outputs": "User instructions",
+      "steps": "Explain real supported inputs/converter, dimensions units, AI uncertainty, offline recovery, guest vs permanent storage and export. Include contact address supplied by owner; no invented support email.",
+      "fail": "Docs must match live controls and limits.",
+      "test": "RELEASE-01",
+      "status": "planned"
+    },
+    {
+      "path": "supabase/functions/cleanup/index.ts",
+      "phase": "E",
+      "inputs": "Scheduled secret-authenticated request",
+      "outputs": "Scheduled expiry cleanup result",
+      "steps": "Separate server-only handler. Verify X-Cleanup-Secret against LABELROOM_CLEANUP_SECRET using a constant-time byte comparison; only then call shared cleanup. verify_jwt=false only here because callers use server credentials. Schedule every15min with Supabase Cron and vault-protected LABELROOM_CLEANUP_SECRET; never embed secret in migration SQL. Generate32random bytes once, store only in Supabase Edge secrets and Vault; Cron POST uses X-Cleanup-Secret, never a browser token.",
+      "fail": "A user JWT or a missing/forged secret is denied; permanent projects are never deleted.",
+      "test": "SEC-01",
+      "status": "planned"
+    }
+  ],
+  "applicationFileCount": 67,
+  "scopeFrozen": true
+}

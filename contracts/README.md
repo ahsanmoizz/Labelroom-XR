@@ -1,0 +1,1 @@
+These examples seal key names and the wire format. fixtures/contract-example.zip is synthetic analytic TEST data, not a real scan, demo or success evidence. A parser may open this fixture in test mode. The production demo must be real licensed data. Export filenames use .lrx.zip; test fixture is .zip to avoid committing private dataset paths.

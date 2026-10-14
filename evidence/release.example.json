@@ -1,0 +1,56 @@
+{
+  "commit": "",
+  "productionUrl": "",
+  "membershipAccepted": {
+    "passed": false,
+    "evidence": ""
+  },
+  "dataRightsVerified": {
+    "passed": false,
+    "evidence": ""
+  },
+  "realDataImported": {
+    "passed": false,
+    "evidence": ""
+  },
+  "roundTripExportPassed": {
+    "passed": false,
+    "evidence": ""
+  },
+  "handsEndToEndPassed": {
+    "passed": false,
+    "evidence": ""
+  },
+  "questPerformancePassed": {
+    "passed": false,
+    "evidence": ""
+  },
+  "privateAccessPassed": {
+    "passed": false,
+    "evidence": ""
+  },
+  "authDeliveryPassed": {
+    "passed": false,
+    "evidence": ""
+  },
+  "persistenceRecoveryPassed": {
+    "passed": false,
+    "evidence": ""
+  },
+  "liveAgentPassed": {
+    "passed": false,
+    "evidence": ""
+  },
+  "judgeAccessPassed": {
+    "passed": false,
+    "evidence": ""
+  },
+  "userValidationPassed": {
+    "passed": false,
+    "evidence": ""
+  },
+  "submissionReady": {
+    "passed": false,
+    "evidence": ""
+  }
+}

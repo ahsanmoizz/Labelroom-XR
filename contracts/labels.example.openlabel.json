@@ -1,0 +1,43 @@
+{
+  "openlabel": {
+    "metadata": {
+      "schema_version": "1.0.0"
+    },
+    "objects": {
+      "object-01": {
+        "name": "object-01",
+        "type": "Example"
+      }
+    },
+    "frames": {
+      "0": {
+        "frame_properties": {
+          "timestamp": 0.0
+        },
+        "objects": {
+          "object-01": {
+            "object_data": {
+              "cuboid": [
+                {
+                  "name": "bbox",
+                  "val": [
+                    0,
+                    0,
+                    0.5,
+                    0,
+                    0,
+                    0,
+                    1,
+                    2,
+                    2,
+                    2
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "schemaVersion": "1.0",
+  "bundleId": "00000000-0000-4000-8000-000000000001",
+  "source": {
+    "name": "Synthetic analytic unit fixture",
+    "kind": "synthetic-test",
+    "url": "",
+    "licence": "MIT",
+    "attribution": "Generated for contract tests only",
+    "sha256": "8454b80019f644be108873f32ac209c674e361903dd15a48394199d7ae185f10"
+  },
+  "sourceOrigin": [
+    0,
+    0,
+    0
+  ],
+  "units": "meters",
+  "coordinates": "x-y-ground-z-up",
+  "frames": [
+    {
+      "id": "0",
+      "timestamp": 0.0,
+      "pcd": "frames/000.pcd",
+      "sha256": "c04561ea3d781cba2b208566b12729138b6b4f17880aeb144d3fd3e30dc3bd0f",
+      "pointCount": 8
+    }
+  ],
+  "hashes": {
+    "labels.openlabel.json": "a1fe6cfb66fe3d381214c30688183384e9376ff56627550ee934f33475a6219b",
+    "LICENSE.txt": "9dee14856fc26d3b78d3095e0b12905dec18a5310674779641472b665f315657",
+    "ATTRIBUTION.txt": "f774f17f980eb8b0d2a58146da4e880631e58f61e186375e69d08fed38a401dd"
+  }
+}

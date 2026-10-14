@@ -1,0 +1,52 @@
+{
+  "name": "labelroom-xr",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "iwsdk dev restart --open --foreground",
+    "dev:runtime": "vite",
+    "dev:down": "iwsdk dev down",
+    "dev:status": "iwsdk dev status",
+    "reference:status": "iwsdk reference status",
+    "reference:warmup": "iwsdk reference warmup",
+    "typecheck": "tsc --noEmit",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "preflight": "node scripts/preflight.mjs",
+    "verify": "npm run typecheck && npm test && npm run build && npm run preflight",
+    "release:check": "node scripts/release-check.mjs",
+    "audit:prod": "npm audit --omit=dev --audit-level=high",
+    "pack:check": "node scripts/check-pack.mjs"
+  },
+  "dependencies": {
+    "@iwsdk/core": "1.0.1",
+    "@pmndrs/uikit": "1.0.74",
+    "@pmndrs/uikit-horizon": "1.0.74",
+    "@pmndrs/uikit-lucide": "1.0.74",
+    "@supabase/supabase-js": "2.117.3",
+    "fflate": "0.8.3",
+    "three": "npm:super-three@0.181.0",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@iwsdk/cli": "1.0.1",
+    "@iwsdk/vite-plugin-dev": "1.0.1",
+    "@playwright/test": "1.64.0",
+    "@types/three": "0.181.0",
+    "deno": "2.9.6",
+    "supabase": "2.120.0",
+    "typescript": "5.9.3",
+    "vite": "7.3.7",
+    "vitest": "3.2.7"
+  },
+  "overrides": {
+    "sharp": "0.35.4",
+    "three": "npm:super-three@0.181.0"
+  },
+  "engines": {
+    "node": ">=24.19.0 <25"
+  }
+}
