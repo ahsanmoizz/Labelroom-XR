@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { unzipSync } from 'fflate';
+import { crc32, deflateRawSync } from 'node:zlib';
+import { parseZipBytes, ZipParseError } from '../../src/data/zip';
 import { parseOpenLabelBytes, OpenLabelParseError } from '../../src/data/openlabel';
 import { parseManifestBytes, ManifestParseError } from '../../src/domain/schema';
 import { parseCanonicalPcd, PcdParseError } from '../../src/data/pcd';
@@ -356,5 +358,149 @@ describe('DATA-01/02 canonical PCD parser component (full bundle gates remain pe
   });
   it('rejects mutable shared backing memory', () => {
     rejects(new Uint8Array(new SharedArrayBuffer(1)), 'INPUT', 'file');
+  });
+});
+
+// ZIP fixtures use Node's independent raw-deflate/CRC implementation. Tiny
+// declared-size records exercise large limits without allocating a ZIP bomb.
+type ZipFixtureEntry = { name: string; data?: Uint8Array; method?: number; flags?: number; size?: number; attributes?: number; extra?: Uint8Array; descriptor?: 'signed' | 'unsigned' };
+function rawZip(items: ZipFixtureEntry[], comment = new Uint8Array(), reverseDirectory = false): Uint8Array {
+  const locals: Buffer[] = [], central: Buffer[] = []; let offset = 0;
+  for (const e of items) {
+    const name = Buffer.from(e.name), data = Buffer.from(e.data ?? [1, 2, 3]), method = e.method ?? 8;
+    const compressed = method === 0 ? data : deflateRawSync(data), crc = crc32(data), size = e.size ?? data.length;
+    const flags = (e.flags ?? 0) | (e.descriptor ? 8 : 0), extra = Buffer.from(e.extra ?? []);
+    const local = Buffer.alloc(30 + name.length + extra.length);
+    local.writeUInt32LE(0x04034b50); local.writeUInt16LE(20, 4); local.writeUInt16LE(flags, 6); local.writeUInt16LE(method, 8);
+    if (!e.descriptor) { local.writeUInt32LE(crc, 14); local.writeUInt32LE(compressed.length, 18); local.writeUInt32LE(size, 22); }
+    local.writeUInt16LE(name.length, 26); local.writeUInt16LE(extra.length, 28); name.copy(local, 30); extra.copy(local, 30 + name.length);
+    const descriptor = Buffer.alloc(e.descriptor === 'signed' ? 16 : e.descriptor ? 12 : 0);
+    if (descriptor.length) { const p = e.descriptor === 'signed' ? 4 : 0; if (p) descriptor.writeUInt32LE(0x08074b50); descriptor.writeUInt32LE(crc, p); descriptor.writeUInt32LE(compressed.length, p + 4); descriptor.writeUInt32LE(size, p + 8); }
+    const c = Buffer.alloc(46 + name.length + extra.length);
+    c.writeUInt32LE(0x02014b50); c.writeUInt16LE(0x0314, 4); c.writeUInt16LE(20, 6); c.writeUInt16LE(flags, 8); c.writeUInt16LE(method, 10);
+    c.writeUInt32LE(crc, 16); c.writeUInt32LE(compressed.length, 20); c.writeUInt32LE(size, 24); c.writeUInt16LE(name.length, 28); c.writeUInt16LE(extra.length, 30);
+    c.writeUInt32LE(e.attributes ?? (0o100644 << 16) >>> 0, 38); c.writeUInt32LE(offset, 42); name.copy(c, 46); extra.copy(c, 46 + name.length);
+    locals.push(local, compressed, descriptor); central.push(c); offset += local.length + compressed.length + descriptor.length;
+  }
+  const directory = Buffer.concat(reverseDirectory ? central.reverse() : central), end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50); end.writeUInt16LE(items.length, 8); end.writeUInt16LE(items.length, 10); end.writeUInt32LE(directory.length, 12); end.writeUInt32LE(offset, 16); end.writeUInt16LE(comment.length, 20);
+  return new Uint8Array(Buffer.concat([...locals, directory, end, comment]));
+}
+const zipEntries = (): ZipFixtureEntry[] => ['manifest.json', 'labels.openlabel.json', 'LICENSE.txt', 'ATTRIBUTION.txt', 'frames/000.pcd'].map(name => ({ name }));
+const zipView = (b: Uint8Array) => new DataView(b.buffer, b.byteOffset, b.byteLength);
+const zipCentral = (b: Uint8Array) => zipView(b).getUint32(b.length - 6, true);
+async function badZip(bytes: unknown, code?: string) {
+  let error: unknown;
+  try { await parseZipBytes(bytes as Uint8Array, 'upload/input.lrx.zip'); } catch (e) { error = e; }
+  expect(error).toBeInstanceOf(ZipParseError);
+  const caught = error as ZipParseError;
+  if (code) expect(caught.code).toBe(code);
+  expect(caught.filePath).toBe('upload/input.lrx.zip'); expect(caught.message).toContain(caught.filePath);
+  return caught;
+}
+describe('DATA-02 ZIP component (bundle hashes and browser/Quest acceptance remain pending)', () => {
+  it('extracts every exact member byte from the supplied synthetic contract fixture', async () => {
+    const input = new Uint8Array(readFileSync('fixtures/contract-example.zip')), expected = unzipSync(input), actual = await parseZipBytes(input);
+    expect([...actual.keys()].sort()).toEqual(Object.keys(expected).sort());
+    for (const [name, bytes] of actual) expect(bytes).toEqual(expected[name]);
+  });
+  it.each([0, 8])('reads stored/deflate method %i with binary bytes preserved', async method => {
+    const entries = zipEntries().map(e => ({ ...e, method, data: new Uint8Array([0, 255, 13, 10, 80, 75, 3, 4]) }));
+    const result = await parseZipBytes(rawZip(entries)); expect(result.size).toBe(5);
+    for (const bytes of result.values()) expect(bytes).toEqual(entries[0].data);
+  });
+  it.each(['signed', 'unsigned'] as const)('accepts matching %s ZIP32 data descriptors', async descriptor => {
+    const result = await parseZipBytes(rawZip(zipEntries().map(e => ({ ...e, descriptor })))); expect(result.size).toBe(5);
+  });
+  it('supports different central-directory order, ASCII UTF-8 flag, comments and bounded harmless extra metadata', async () => {
+    const extra = new Uint8Array([0x55, 0x54, 1, 0, 0]), entries = zipEntries().map(e => ({ ...e, flags: 0x800, extra }));
+    const result = await parseZipBytes(rawZip(entries, new TextEncoder().encode('comment PK'), true)); expect(result.size).toBe(5);
+  });
+  it('accepts optional audit/review as raw untrusted bytes', async () => {
+    const entries = [...zipEntries(), { name: 'audit.json' }, { name: 'review.json' }];
+    const result = await parseZipBytes(rawZip(entries)); expect(result.get('audit.json')).toEqual(new Uint8Array([1, 2, 3]));
+  });
+  it('owns Buffer/view input and returns independent member byte arrays across yields', async () => {
+    const input = Buffer.from(rawZip(zipEntries())), copy = Buffer.from(input), promise = parseZipBytes(input); input.fill(0);
+    const result = await promise; expect(input).not.toEqual(copy); result.get('LICENSE.txt')![0] = 0;
+    expect(result.get('ATTRIBUTION.txt')![0]).toBe(1);
+    const padded = new Uint8Array(copy.length + 10); padded.set(copy, 5); expect((await parseZipBytes(padded.subarray(5, 5 + copy.length))).size).toBe(5);
+  });
+  it('yields to the event loop during a larger stored member before publishing a complete map', async () => {
+    const entries = zipEntries(); entries[0] = { name: 'manifest.json', method: 0, data: new Uint8Array(128 * 1024) };
+    let settled = false; const promise = parseZipBytes(rawZip(entries)).then(r => { settled = true; return r; });
+    await new Promise<void>(resolve => setTimeout(resolve, 0)); expect(settled).toBe(false); expect((await promise).size).toBe(5);
+  });
+  it.each([null, {}, new Uint16Array(4), new Uint8Array(new SharedArrayBuffer(8))])('rejects non-byte/shared input %#', async input => { await badZip(input, 'INPUT'); });
+  it('rejects above 25 MiB before copying or scanning the input', async () => { await badZip(new Uint8Array(25 * 1024 * 1024 + 1), 'COMPRESSED_LIMIT'); });
+  it.each([0, 1, 4, 21])('rejects a truncated %i-byte archive', async size => { await badZip(new Uint8Array(size), 'FORMAT'); });
+  it('rejects empty archives and excessive directory counts', async () => {
+    await badZip(rawZip([]), 'MEMBER_LIMIT'); const b = rawZip(zipEntries()), v = zipView(b); v.setUint16(b.length - 14, 21, true); v.setUint16(b.length - 12, 21, true); await badZip(b, 'MEMBER_LIMIT');
+  });
+  it.each(['../manifest.json', '/manifest.json', 'C:/manifest.json', 'frames\\000.pcd', 'frames/../000.pcd', 'frames//000.pcd', 'frames/000.pcd.zip', 'MANIFEST.json', 'frames/', 'payload.zip', 'manifest.json\u0000', 'labels.ہ.json', 'frames/00.pcd'])('rejects unsafe or unknown path %s', async name => { const entries = zipEntries(); entries[0].name = name; await badZip(rawZip(entries), 'PATH'); });
+  it('rejects duplicate exact paths and mismatched local names', async () => {
+    await badZip(rawZip([...zipEntries(), zipEntries()[0]]), 'PATH');
+    const b = rawZip(zipEntries()); b[30] = 77; await badZip(b, 'PATH');
+  });
+  it.each([0o120777, 0o040755, 0o020600])('rejects non-regular Unix type %i', async mode => {
+    const e = zipEntries(); e[0].attributes = (mode << 16) >>> 0; await badZip(rawZip(e), 'UNSUPPORTED');
+  });
+  it('rejects DOS directory and volume-label attributes', async () => {
+    for (const attributes of [0x10, 8]) { const e = zipEntries(); e[0].attributes = attributes; await badZip(rawZip(e), 'UNSUPPORTED'); }
+  });
+  it.each([1, 0x40, 0x2000, 0x100])('rejects encryption or unsupported general-purpose flag %i', async flags => { const e = zipEntries(); e[0].flags = flags; await badZip(rawZip(e), 'UNSUPPORTED'); });
+  it('rejects unsupported compression and stored-method compression flags', async () => {
+    const e = zipEntries(); e[0].method = 99; await badZip(rawZip(e), 'UNSUPPORTED'); e[0].method = 0; e[0].flags = 2; await badZip(rawZip(e), 'UNSUPPORTED');
+  });
+  it.each([0x0001, 0x0017, 0x7075, 0x6375, 0x9901])('rejects ZIP64, name override or encryption extra field %i', async id => {
+    const e = zipEntries(), extra = new Uint8Array(4); zipView(extra).setUint16(0, id, true); e[0].extra = extra; await badZip(rawZip(e), 'UNSUPPORTED');
+  });
+  it('rejects malformed extra fields and unsupported required versions', async () => {
+    const e = zipEntries(); e[0].extra = new Uint8Array([1, 2, 9, 0]); await badZip(rawZip(e), 'FORMAT');
+    const b = rawZip(zipEntries()); zipView(b).setUint16(zipCentral(b) + 6, 45, true); await badZip(b, 'UNSUPPORTED');
+  });
+  it('rejects multi-disk EOCD and per-member start disks', async () => {
+    const a = rawZip(zipEntries()); zipView(a).setUint16(a.length - 18, 1, true); await badZip(a, 'UNSUPPORTED');
+    const b = rawZip(zipEntries()); zipView(b).setUint16(zipCentral(b) + 34, 1, true); await badZip(b, 'UNSUPPORTED');
+  });
+  it('rejects ZIP64 sentinel sizes and EOCD counts', async () => {
+    const a = rawZip(zipEntries()); zipView(a).setUint32(zipCentral(a) + 20, 0xffffffff, true); await badZip(a, 'UNSUPPORTED');
+    const b = rawZip(zipEntries()); zipView(b).setUint16(b.length - 14, 65535, true); zipView(b).setUint16(b.length - 12, 65535, true); await badZip(b, 'UNSUPPORTED');
+  });
+  it.each([['manifest.json', 128 * 1024 + 1], ['labels.openlabel.json', 2 * 1024 * 1024 + 1], ['LICENSE.txt', 64 * 1024 + 1], ['ATTRIBUTION.txt', 64 * 1024 + 1], ['audit.json', 2 * 1024 * 1024 + 1], ['review.json', 2 * 1024 * 1024 + 1], ['frames/000.pcd', 16384 + 200000 * 12 + 1]] as const)('rejects declared member ceiling %s with tiny payloads', async (name, size) => { await badZip(rawZip([{ name, size }]), 'EXPANDED_LIMIT'); });
+  it('rejects declared total expansion above 40 MiB using only tiny payloads', async () => {
+    const entries = Array.from({ length: 20 }, (_, i) => ({ name: `frames/${String(i).padStart(3, '0')}.pcd`, size: 16384 + 200000 * 12 })); await badZip(rawZip(entries), 'EXPANDED_LIMIT');
+  });
+  it('checks actual streamed output instead of trusting the declared small size', async () => {
+    const e = zipEntries(); e[2] = { name: 'LICENSE.txt', size: 1, data: new Uint8Array(70 * 1024) }; await badZip(rawZip(e), 'EXPANDED_LIMIT');
+    e[2] = { name: 'LICENSE.txt', size: 1, data: new Uint8Array(1024) }; await badZip(rawZip(e), 'SIZE');
+  });
+  it('rejects short expanded size and stored-size inconsistency', async () => {
+    const e = zipEntries(); e[0].size = 4; await badZip(rawZip(e), 'SIZE'); e[0].method = 0; await badZip(rawZip(e), 'SIZE');
+  });
+  it('rejects CRC drift and invalid raw deflate', async () => {
+    const a = rawZip(zipEntries().map(e => ({ ...e, method: 0 }))); a[30 + 'manifest.json'.length] ^= 1; const error = await badZip(a, 'CRC'); expect(error.memberPath).toBe('manifest.json');
+    const b = rawZip(zipEntries()); b[30 + 'manifest.json'.length] = 7; await badZip(b, 'DEFLATE');
+  });
+  it('rejects local/central size, flags and method disagreements', async () => {
+    for (const [offset, value] of [[18, 999], [6, 1], [8, 0]]) { const b = rawZip(zipEntries()); zipView(b).setUint16(offset, value, true); await badZip(b); }
+  });
+  it('rejects data-descriptor drift and nonzero descriptor local sizes', async () => {
+    const e = zipEntries().map(e => ({ ...e, descriptor: 'signed' as const })), a = rawZip(e), v = zipView(a), c = zipCentral(a), dataEnd = 30 + 'manifest.json'.length + v.getUint32(c + 20, true);
+    v.setUint32(dataEnd + 8, 123, true); await badZip(a, 'SIZE');
+    const b = rawZip(e); zipView(b).setUint32(14, 123, true); await badZip(b, 'FORMAT');
+  });
+  it('rejects out-of-range payload offsets, overlapping entries and directory count drift', async () => {
+    const a = rawZip(zipEntries()); zipView(a).setUint32(zipCentral(a) + 42, a.length, true); await badZip(a, 'FORMAT');
+    const b = rawZip(zipEntries()), c = zipCentral(b), second = c + 46 + 'manifest.json'.length; zipView(b).setUint32(second + 42, 0, true); await badZip(b);
+    const d = rawZip(zipEntries()); zipView(d).setUint16(d.length - 14, 4, true); zipView(d).setUint16(d.length - 12, 4, true); await badZip(d, 'FORMAT');
+  });
+  it('rejects prefixed executables, appended payload and hidden local file areas', async () => {
+    const b = rawZip(zipEntries()); await badZip(new Uint8Array(Buffer.concat([Buffer.from('MZ'), b])), 'FORMAT'); await badZip(new Uint8Array(Buffer.concat([b, Buffer.from('hidden')])), 'FORMAT');
+    const a = rawZip(zipEntries()), c = zipCentral(a); zipView(a).setUint32(c + 42, 1, true); await badZip(a, 'FORMAT');
+  });
+  it('rejects missing mandatory members and an eleventh frame before inflation', async () => {
+    for (const name of zipEntries().map(e => e.name)) await badZip(rawZip(zipEntries().filter(e => e.name !== name)), 'MISSING');
+    const e = [...zipEntries(), ...Array.from({ length: 10 }, (_, i) => ({ name: `frames/${String(i + 1).padStart(3, '0')}.pcd` }))]; await badZip(rawZip(e), 'MEMBER_LIMIT');
   });
 });
