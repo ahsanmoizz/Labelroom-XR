@@ -1,12 +1,153 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { unzipSync } from 'fflate';
+import { parseOpenLabelBytes, OpenLabelParseError } from '../../src/data/openlabel';
 import { parseManifestBytes, ManifestParseError } from '../../src/domain/schema';
 import { parseCanonicalPcd, PcdParseError } from '../../src/data/pcd';
 
 const exampleManifest = JSON.parse(readFileSync('contracts/manifest.example.json', 'utf8'));
 const manifestBytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value));
 const manifest = () => structuredClone(exampleManifest);
+const exampleLabels = JSON.parse(readFileSync('contracts/labels.example.openlabel.json', 'utf8'));
+const labels = () => structuredClone(exampleLabels);
+function badLabels(value: unknown, code?: string, m = manifest()) {
+  let caught: unknown;
+  try { parseOpenLabelBytes(value instanceof Uint8Array ? value : manifestBytes(value), m, 'clip/labels.openlabel.json'); } catch (e) { caught = e; }
+  expect(caught).toBeInstanceOf(OpenLabelParseError);
+  const error = caught as OpenLabelParseError;
+  if (code) expect(error.code).toBe(code);
+  expect(error.filePath).toBe('clip/labels.openlabel.json'); expect(error.message).toContain(error.filePath);
+  expect(error.field.length).toBeGreaterThan(0);
+  return error;
+}
+const val = (l: ReturnType<typeof labels>) => l.openlabel.frames['0'].objects['object-01'].object_data.cuboid[0].val;
+
+describe('DATA-01/02 OpenLABEL component (ZIP/member hashes and full data acceptance remain pending)', () => {
+  it('reads the supplied fixture without changing bytes, source XYZ or original JSON', () => {
+    const bytes = unzipSync(new Uint8Array(readFileSync('fixtures/contract-example.zip')))['labels.openlabel.json']; const before = bytes.slice();
+    const r = parseOpenLabelBytes(bytes, manifest());
+    expect(r.document).toEqual(exampleLabels); expect(r.originalBytes).toEqual(bytes); expect(bytes).toEqual(before);
+    expect(r.frames[0].boxes[0]).toEqual({ id: 'object-01', name: 'object-01', type: 'Example', box: { center: [0, 0, 0.5], size: [2, 2, 2], yaw: 0 } });
+    r.frames[0].boxes[0].box.center = [9, 9, 9]; r.originalBytes[0] = 0;
+    expect(r.document).toEqual(exampleLabels); expect(bytes).toEqual(before);
+    const nodeBuffer = Buffer.from(bytes), copy = parseOpenLabelBytes(nodeBuffer, manifest());
+    copy.originalBytes[0] = 0;
+    expect(nodeBuffer[0]).toBe(bytes[0]);
+  });
+  it('preserves unknown metadata, attributes, unrelated geometry, IDs and Unicode values', () => {
+    const l = labels(); l.vendor = { text: 'unchanged ہنان', values: [true, null, { custom: 7 }] };
+    l.openlabel.metadata.extra = { source: 'capture' }; l.openlabel.objects['object-01'].attributes = { quality: 'occluded' };
+    l.openlabel.frames['0'].objects['object-01'].object_data.points2d = [{ name: 'unrelated', val: [1, 2] }];
+    l.openlabel.frames['0'].frame_properties.extra = 'kept';
+    const bytes = manifestBytes(l), r = parseOpenLabelBytes(bytes, manifest());
+    expect(r.document).toEqual(l); expect(r.originalBytes).toEqual(bytes);
+    expect(JSON.parse(JSON.stringify(r.document))).toEqual(l);
+  });
+  it('accepts zero labels with missing optional global/frame object dictionaries', () => {
+    const l = labels(); delete l.openlabel.objects; delete l.openlabel.frames['0'].objects;
+    const r = parseOpenLabelBytes(manifestBytes(l), manifest()); expect(r.frames[0].boxes).toEqual([]); expect(r.document).toEqual(l);
+  });
+  it('accepts all ten frames with 100 labels each and exactly 1000 global identities', () => {
+    const l = labels(), m = manifest(), occurrence = structuredClone(l.openlabel.frames['0'].objects['object-01']);
+    l.openlabel.objects = {}; l.openlabel.frames = {}; m.frames = [];
+    for (let f = 0; f < 10; f++) {
+      const id = String(f), objects: Record<string, unknown> = {};
+      m.frames.push({ ...exampleManifest.frames[0], id, pcd: `frames/${id.padStart(3, '0')}.pcd`, timestamp: f / 10 });
+      for (let o = 0; o < 100; o++) { const key = `object-${f}-${o}`; l.openlabel.objects[key] = { type: 'Vehicle' }; objects[key] = structuredClone(occurrence); }
+      l.openlabel.frames[id] = { frame_properties: { timestamp: f / 10 }, objects };
+    }
+    const r = parseOpenLabelBytes(manifestBytes(l), m); expect(r.frames.length).toBe(10); expect(r.frames.every(f => f.boxes.length === 100)).toBe(true);
+  });
+  it('maps frame order from the manifest and matches arbitrary unique string IDs', () => {
+    const l = labels(), m = manifest(); m.frames[0].id = 'later'; m.frames[0].timestamp = -2;
+    m.frames.push({ ...m.frames[0], id: 'earlier', timestamp: -1, pcd: 'frames/001.pcd' });
+    const f = structuredClone(l.openlabel.frames['0']); l.openlabel.frames = { earlier: { ...f, frame_properties: { timestamp: -1 } }, later: { ...f, frame_properties: { timestamp: -2 } } };
+    expect(parseOpenLabelBytes(manifestBytes(l), m).frames.map(f => f.id)).toEqual(['later', 'earlier']);
+  });
+  it('preserves prototype-like object/frame IDs without prototype pollution', () => {
+    const l = labels(), m = manifest(); m.frames[0].id = '__proto__';
+    l.openlabel.objects = JSON.parse('{"constructor":{"type":"Car"},"__proto__":{"type":"Truck"}}');
+    const occurrence = l.openlabel.frames['0'].objects['object-01'];
+    const f = { frame_properties: { timestamp: 0 }, objects: JSON.parse('{}') };
+    Object.defineProperty(f.objects, '__proto__', { value: occurrence, enumerable: true }); f.objects.constructor = occurrence;
+    l.openlabel.frames = JSON.parse('{}'); Object.defineProperty(l.openlabel.frames, '__proto__', { value: f, enumerable: true });
+    const r = parseOpenLabelBytes(manifestBytes(l), m); expect(r.frames[0].boxes.map(b => b.id)).toEqual(['__proto__', 'constructor']);
+    expect(r.document).toEqual(l); expect(Object.getPrototypeOf({})).toBe(Object.prototype);
+  });
+  it.each([0, Math.PI / 2, -Math.PI / 2, Math.PI, -Math.PI, 0.75])('maps source-world yaw %s without display transform or sourceOrigin translation', yaw => {
+    const l = labels(), m = manifest(); m.sourceOrigin = [1e6, -2e6, 300];
+    val(l).splice(0, 10, 10, -20, 30, 0, 0, Math.sin(yaw / 2), Math.cos(yaw / 2), 4, 2, 1);
+    const box = parseOpenLabelBytes(manifestBytes(l), m).frames[0].boxes[0].box;
+    expect(box.center).toEqual([10, -20, 30]); expect(box.size).toEqual([4, 2, 1]);
+    expect(Math.cos(box.yaw)).toBeCloseTo(Math.cos(yaw), 12); expect(Math.sin(box.yaw)).toBeCloseTo(Math.sin(yaw), 12);
+  });
+  it('accepts quaternion sign equivalence, exact geometry limits and an unaligned byte slice', () => {
+    const l = labels(); val(l).splice(0, 10, 250, -250, 0, 0, 0, -Math.sin(0.4), -Math.cos(0.4), 0.05, 50, 2);
+    const bytes = manifestBytes(l), backing = new Uint8Array(bytes.length + 5); backing.set(bytes, 3);
+    const r = parseOpenLabelBytes(backing.subarray(3, 3 + bytes.length), manifest()); expect(r.frames[0].boxes[0].box.yaw).toBeCloseTo(0.8, 12);
+  });
+  it('requires exactly the manifest frame set and a valid bounded manifest', () => {
+    for (const frames of [{}, { '1': labels().openlabel.frames['0'] }, { ...labels().openlabel.frames, extra: labels().openlabel.frames['0'] }]) { const l = labels(); l.openlabel.frames = frames; badLabels(l, 'FRAME_SET'); }
+    const m = manifest(); m.frames[0].pointCount = 0; badLabels(labels(), 'MANIFEST', m);
+    m.frames = new Array(11).fill(exampleManifest.frames[0]); badLabels(labels(), 'MANIFEST', m);
+    expect(() => parseOpenLabelBytes(manifestBytes(labels()), null as unknown as typeof m)).toThrow(OpenLabelParseError);
+  });
+  it.each([undefined, null, '0', 0.1])('rejects missing, coerced or mismatching frame timestamp %s', timestamp => {
+    const l = labels(); l.openlabel.frames['0'].frame_properties.timestamp = timestamp;
+    const e = badLabels(l); expect(e.frameId).toBe('0'); expect(e.field).toContain('timestamp');
+  });
+  it('requires schema version 1.0.0 and valid global object metadata', () => {
+    const l = labels(); l.openlabel.metadata.schema_version = '1.0'; badLabels(l, 'SCHEMA');
+    for (const metadata of [{}, { type: '' }, { type: 1 }, { type: 'Car', name: 7 }]) {
+      const x = labels(); x.openlabel.objects['object-01'] = metadata; const e = badLabels(x, 'SCHEMA'); expect(e.objectId).toBe('object-01');
+    }
+  });
+  it('rejects inherited or nonexistent global references and invalid object dictionaries', () => {
+    const l = labels(); delete l.openlabel.objects['object-01']; expect(badLabels(l, 'OBJECT_REFERENCE').objectId).toBe('object-01');
+    for (const field of ['frames', 'objects']) { const x = labels(); x.openlabel[field] = []; badLabels(x, 'SCHEMA'); }
+    const x = labels(); x.openlabel.frames['0'].objects = []; badLabels(x, 'SCHEMA');
+    const y = labels(); y.openlabel.frames['0'].objects = { constructor: y.openlabel.frames['0'].objects['object-01'] }; badLabels(y, 'OBJECT_REFERENCE');
+  });
+  it('rejects 101 labels and more than 1000 global objects without hidden truncation', () => {
+    const l = labels(), occurrence = structuredClone(l.openlabel.frames['0'].objects['object-01']); l.openlabel.objects = {}; l.openlabel.frames['0'].objects = {};
+    for (let i = 0; i < 101; i++) { const id = `o-${i}`; l.openlabel.objects[id] = { type: 'Car' }; l.openlabel.frames['0'].objects[id] = occurrence; }
+    badLabels(l, 'LABEL_LIMIT');
+    l.openlabel.objects = Object.fromEntries(Array.from({ length: 1001 }, (_, i) => [`o-${i}`, { type: 'Car' }])); badLabels(l, 'GLOBAL_LIMIT');
+  });
+  it.each([[], [{ name: 'other', val: [0, 0, 0, 0, 0, 0, 1, 2, 2, 2] }], [1], [null]].map(cuboid => ({ cuboid })))('rejects absent or unsupported bbox cuboids', ({ cuboid }) => {
+    const l = labels(); l.openlabel.frames['0'].objects['object-01'].object_data.cuboid = cuboid; badLabels(l, 'SCHEMA');
+  });
+  it('rejects duplicate/ambiguous bbox entries and malformed value cardinality', () => {
+    const l = labels(), c = l.openlabel.frames['0'].objects['object-01'].object_data.cuboid; c.push(structuredClone(c[0])); badLabels(l, 'SCHEMA');
+    for (const n of [9, 11]) { const x = labels(); x.openlabel.frames['0'].objects['object-01'].object_data.cuboid[0].val = new Array(n).fill(1); badLabels(x, 'SCHEMA'); }
+    const x = labels(); val(x)[0] = '0'; badLabels(x, 'SCHEMA');
+  });
+  it.each([[Math.sin(0.1), 0, 0, Math.cos(0.1)], [0, Math.sin(0.1), 0, Math.cos(0.1)], [0, 0, 0, 0], [0, 0, 0, 2]].map(q => ({ q })))('rejects pitch, roll or unnormalized xyzw $q', ({ q }) => {
+    const l = labels(); val(l).splice(3, 4, ...q); const e = badLabels(l, 'SCHEMA'); expect(e.objectId).toBe('object-01'); expect(e.frameId).toBe('0'); expect(e.field).toContain('val[3]');
+  });
+  it.each([[0, 250.001], [2, -250.001], [7, 0.049], [8, 50.001], [9, 0]])('rejects coordinate or size limit violation %s', (index, value) => {
+    const l = labels(); val(l)[index] = value; const e = badLabels(l, 'SCHEMA'); expect(e.field).toContain(`val[${index}]`);
+  });
+  it('rejects non-finite numbers in geometry, timestamps and unknown metadata without converting to null', () => {
+    const json = JSON.stringify(labels());
+    const a = badLabels(new TextEncoder().encode(json.replace('"val":[0,0,0.5', '"val":[1e400,0,0.5')), 'NON_FINITE'); expect(a.objectId).toBe('object-01');
+    badLabels(new TextEncoder().encode(json.replace('"timestamp":0', '"timestamp":1e400')), 'NON_FINITE');
+    badLabels(new TextEncoder().encode(json.slice(0, -1) + ',"unknown":1e400}'), 'NON_FINITE');
+  });
+  it('rejects malformed UTF-8, BOM, duplicate escaped keys, invalid JSON, shared bytes and invalid root', () => {
+    badLabels(new Uint8Array([0xff]), 'UTF8'); badLabels(new Uint8Array([0xef, 0xbb, 0xbf, 123, 125]), 'UTF8');
+    badLabels(new TextEncoder().encode('{"openlabel":{},"\\u006fpenlabel":{}}'), 'JSON');
+    badLabels(new TextEncoder().encode('{'), 'JSON'); badLabels(new Uint8Array(new SharedArrayBuffer(1)), 'INPUT');
+    for (const v of [null, [], 1, 'x']) badLabels(v, 'SCHEMA');
+  });
+  it('accepts exactly 2 MiB, rejects oversized bytes before parsing and bounds metadata depth/nodes', () => {
+    const bytes = manifestBytes(labels()), padded = new Uint8Array(2 * 1024 * 1024).fill(32); padded.set(bytes);
+    expect(parseOpenLabelBytes(padded, manifest()).frames[0].boxes.length).toBe(1);
+    badLabels(new Uint8Array(2 * 1024 * 1024 + 1), 'BYTE_LIMIT');
+    badLabels(new TextEncoder().encode('['.repeat(33) + '0' + ']'.repeat(33)), 'JSON');
+    const l = labels(); l.unrelated = new Array(100001).fill(0); badLabels(l, 'NODE_LIMIT');
+  });
+});
 function badManifest(value: unknown, field?: string, code = 'SCHEMA') {
   let caught: unknown;
   try { parseManifestBytes(value instanceof Uint8Array ? value : manifestBytes(value), 'clip/manifest.json'); } catch (e) { caught = e; }

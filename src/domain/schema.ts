@@ -1,8 +1,9 @@
 import { z } from 'zod';
 import { LIMITS } from './limits';
+import { quaternionToYaw } from './geometry';
 
-// Manifest component only. Member bytes/hashes and OpenLABEL are checked by the
-// future bundle loader; accepting this document alone does not accept a bundle.
+// Manifest and supported OpenLABEL schemas. Member byte hashes and ZIP safety
+// remain the responsibility of the future bundle loader.
 const sha256 = z.string().regex(/^[0-9a-f]{64}$/);
 const text = (max: number) => z.string().min(1).max(max).refine(v => v.trim().length > 0);
 const frameSchema = z.strictObject({
@@ -64,12 +65,12 @@ export class ManifestParseError extends Error {
 // Scan bounded JSON text before parsing so duplicate properties cannot silently
 // replace an earlier value. Decode key escapes before comparing within each
 // object. JSON.parse remains the authority for all other JSON grammar rules.
-function checkJsonKeys(text: string, filePath: string): void {
+function checkJsonKeys(text: string, filePath: string, maxDepth: number): void {
   const stack: Array<Set<string> | null> = [];
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
     if (c === '{' || c === '[') {
-      if (stack.length >= 16) throw new ManifestParseError('JSON', filePath, 'file', null, 'Manifest nesting exceeds 16 levels.');
+      if (stack.length >= maxDepth) throw new DataJsonParseError('JSON', filePath, 'Document nesting exceeds its limit.');
       stack.push(c === '{' ? new Set() : null);
     } else if (c === '}' || c === ']') stack.pop();
     else if (c === '"') {
@@ -83,7 +84,7 @@ function checkJsonKeys(text: string, filePath: string): void {
         let key: unknown;
         try { key = JSON.parse(text.slice(start, i + 1)); } catch { return; }
         if (typeof key === 'string') {
-          if (keys.has(key)) throw new ManifestParseError('JSON', filePath, 'file', null, 'Duplicate JSON property in a manifest object.');
+          if (keys.has(key)) throw new DataJsonParseError('JSON', filePath, 'Duplicate JSON property in an object.');
           keys.add(key);
         }
       }
@@ -91,24 +92,39 @@ function checkJsonKeys(text: string, filePath: string): void {
   }
 }
 
+export class DataJsonParseError extends Error {
+  readonly name = 'DataJsonParseError';
+  constructor(readonly code: ManifestErrorCode, readonly filePath: string, readonly detail: string) {
+    super(`${filePath} | file: ${detail}`);
+  }
+}
+
+/** Bounded UTF-8 decoding shared by the manifest and label parsers. */
+export function parseBoundedJsonBytes(input: Uint8Array, filePath: string, maxBytes: number, maxDepth = 16): unknown {
+  const fail = (code: ManifestErrorCode, detail: string): never => { throw new DataJsonParseError(code, filePath, detail); };
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > LIMITS.maxLabelsJsonBytes ||
+      !Number.isSafeInteger(maxDepth) || maxDepth < 1 || maxDepth > 32) fail('INPUT', 'Invalid parser bounds.');
+  if (!(input instanceof Uint8Array) || !(input.buffer instanceof ArrayBuffer)) fail('INPUT', 'Expected non-shared Uint8Array bytes.');
+  if (input.byteLength > maxBytes) fail('BYTE_LIMIT', 'JSON document exceeds its byte limit.');
+  let decoded: string;
+  try {
+    if (input[0] === 0xef && input[1] === 0xbb && input[2] === 0xbf) fail('UTF8', 'UTF-8 BOM is not canonical JSON.');
+    decoded = new TextDecoder('utf-8', { fatal: true }).decode(input);
+  } catch (error) {
+    if (error instanceof DataJsonParseError) throw error;
+    return fail('UTF8', 'Invalid UTF-8 encoding.');
+  }
+  checkJsonKeys(decoded, filePath, maxDepth);
+  try { return JSON.parse(decoded); } catch { return fail('JSON', 'Invalid JSON document.'); }
+}
+
 /** Parse one bounded UTF-8 manifest; no coercion, source mutation or I/O. */
 export function parseManifestBytes(input: Uint8Array, filePath = 'manifest.json'): BundleManifest {
-  const fail = (code: ManifestErrorCode, field: string, detail: string): never => {
-    throw new ManifestParseError(code, filePath, field, null, detail);
-  };
-  if (!(input instanceof Uint8Array) || !(input.buffer instanceof ArrayBuffer)) fail('INPUT', 'file', 'Expected non-shared Uint8Array bytes.');
-  if (input.byteLength > LIMITS.maxManifestBytes) fail('BYTE_LIMIT', 'file', 'Manifest exceeds 128 KiB.');
   let value: unknown;
-  try {
-    // Canonical JSON is UTF-8 without a BOM. Fatal decoding refuses replacement
-    // characters that could silently alter identifiers and provenance strings.
-    if (input[0] === 0xef && input[1] === 0xbb && input[2] === 0xbf) fail('UTF8', 'file', 'UTF-8 BOM is not canonical JSON.');
-    const decoded = new TextDecoder('utf-8', { fatal: true }).decode(input);
-    checkJsonKeys(decoded, filePath);
-    try { value = JSON.parse(decoded); } catch { fail('JSON', 'file', 'Invalid JSON document.'); }
-  } catch (error) {
-    if (error instanceof ManifestParseError) throw error;
-    fail('UTF8', 'file', 'Invalid UTF-8 encoding.');
+  try { value = parseBoundedJsonBytes(input, filePath, LIMITS.maxManifestBytes); }
+  catch (error) {
+    if (error instanceof DataJsonParseError) throw new ManifestParseError(error.code, filePath, 'file', null, error.detail);
+    throw error;
   }
   const result = manifestSchema.safeParse(value);
   if (!result.success) {
@@ -124,3 +140,34 @@ export function parseManifestBytes(input: Uint8Array, filePath = 'manifest.json'
   }
   return result.data;
 }
+
+// Validate only the supported geometry fields. The OpenLABEL reader retains the
+// original parsed document rather than replacing it with a projected schema.
+export const openLabelHeaderSchema = z.looseObject({
+  openlabel: z.looseObject({
+    metadata: z.looseObject({ schema_version: z.literal('1.0.0') }),
+    objects: z.unknown().optional(), frames: z.unknown(),
+  }),
+});
+export const openLabelObjectSchema = z.looseObject({ type: text(1024), name: z.string().max(1024).optional() });
+export const openLabelFrameSchema = z.looseObject({
+  frame_properties: z.looseObject({ timestamp: z.number() }), objects: z.unknown().optional(),
+});
+const cuboidValuesSchema = z.tuple([
+  z.number(), z.number(), z.number(), z.number(), z.number(),
+  z.number(), z.number(), z.number(), z.number(), z.number(),
+]).superRefine((v, ctx) => {
+  for (let i = 0; i < 3; i++) if (Math.abs(v[i]) > LIMITS.maxCoordinateAbs) {
+    ctx.addIssue({ code: 'custom', path: [i], message: 'Box centre exceeds the local coordinate limit.' });
+  }
+  for (let i = 7; i < 10; i++) if (v[i] < LIMITS.minBoxSize || v[i] > LIMITS.maxBoxSize) {
+    ctx.addIssue({ code: 'custom', path: [i], message: 'Box size is outside 0.05..50 metres.' });
+  }
+  try { quaternionToYaw(v.slice(3, 7)); }
+  catch { ctx.addIssue({ code: 'custom', path: [3], message: 'Expected a normalized upright xyzw quaternion.' }); }
+});
+export const openLabelOccurrenceSchema = z.looseObject({
+  object_data: z.looseObject({
+    cuboid: z.array(z.looseObject({ name: z.literal('bbox'), val: cuboidValuesSchema })).length(1),
+  }),
+});
