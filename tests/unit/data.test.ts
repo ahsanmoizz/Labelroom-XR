@@ -1,6 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { unzipSync } from 'fflate';
+import { unzipSync, zipSync } from 'fflate';
+import { createHash } from 'node:crypto';
+import { loadBundleBytes, BundleLoadError } from '../../src/data/bundle';
 import { crc32, deflateRawSync } from 'node:zlib';
 import { parseZipBytes, ZipParseError } from '../../src/data/zip';
 import { parseOpenLabelBytes, OpenLabelParseError } from '../../src/data/openlabel';
@@ -502,5 +504,178 @@ describe('DATA-02 ZIP component (bundle hashes and browser/Quest acceptance rema
   it('rejects missing mandatory members and an eleventh frame before inflation', async () => {
     for (const name of zipEntries().map(e => e.name)) await badZip(rawZip(zipEntries().filter(e => e.name !== name)), 'MISSING');
     const e = [...zipEntries(), ...Array.from({ length: 10 }, (_, i) => ({ name: `frames/${String(i + 1).padStart(3, '0')}.pcd` }))]; await badZip(rawZip(e), 'MEMBER_LIMIT');
+  });
+});
+
+// Integration fixtures recompute ZIP CRC and declared member hashes using
+// independent Node crypto, so hash failures are distinct from archive corruption.
+const memberSha = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
+const bundleMembers = () => unzipSync(new Uint8Array(readFileSync('fixtures/contract-example.zip')));
+function bundleZip(members = bundleMembers(), refresh = true): Uint8Array {
+  if (refresh) {
+    const manifest = JSON.parse(new TextDecoder().decode(members['manifest.json']));
+    for (const frame of manifest.frames) if (members[frame.pcd]) frame.sha256 = memberSha(members[frame.pcd]);
+    for (const name of Object.keys(manifest.hashes)) if (members[name]) manifest.hashes[name] = memberSha(members[name]);
+    members['manifest.json'] = manifestBytes(manifest);
+  }
+  return zipSync(members, { level: 6 });
+}
+function changeBundleManifest(members: ReturnType<typeof bundleMembers>, change: (m: any) => void) {
+  const m = JSON.parse(new TextDecoder().decode(members['manifest.json'])); change(m); members['manifest.json'] = manifestBytes(m);
+}
+async function badBundle(input: unknown, code?: string) {
+  let caught: unknown;
+  try { await loadBundleBytes(input as Uint8Array, 'upload/clip.lrx.zip'); } catch (e) { caught = e; }
+  expect(caught).toBeInstanceOf(BundleLoadError); const error = caught as BundleLoadError;
+  if (code) expect(error.code).toBe(code);
+  expect(error.filePath).toBe('upload/clip.lrx.zip'); expect(error.message).toContain(error.filePath);
+  return error;
+}
+describe('DATA-01/02 bundle integration component (real data and browser/Quest acceptance remain pending)', () => {
+  it('loads the supplied bundle with exact original ZIP/member hashes, geometry and provenance', async () => {
+    const input = new Uint8Array(readFileSync('fixtures/contract-example.zip')), result = await loadBundleBytes(input), members = bundleMembers();
+    expect(result.bundleSha256).toBe(memberSha(input)); expect(result.manifest).toEqual(exampleManifest);
+    expect(result.manifest.source.sha256).not.toBe(result.bundleSha256);
+    expect(result.labelsDocument).toEqual(exampleLabels); expect(result.frames).toHaveLength(1);
+    expect(result.frames[0]).toMatchObject({ id: '0', timestamp: 0, pointCount: 8, pcd: 'frames/000.pcd' });
+    expect(result.frames[0].boxes[0].box).toEqual({ center: [0, 0, 0.5], size: [2, 2, 2], yaw: 0 });
+    expect(result.getFramePoints('0')).toEqual(parseCanonicalPcd(members['frames/000.pcd'], 'frames/000.pcd', 8));
+    expect(result.memberPaths).toEqual(Object.keys(members).sort());
+    for (const name of result.memberPaths) { expect(result.getMemberBytes(name)).toEqual(members[name]); expect(result.memberHashes[name]).toBe(memberSha(members[name])); }
+    expect(result.licenceText.trim()).not.toBe(''); expect(result.attributionText.trim()).not.toBe(''); expect(result.historicalMetadata).toEqual({});
+    expect(result.getOriginalZipBytes()).toEqual(input);
+  });
+  it('owns mutable Buffer/view input across asynchronous extraction and hashing', async () => {
+    const input = Buffer.from(bundleZip()), original = new Uint8Array(input), pending = loadBundleBytes(input); input.fill(0);
+    const r = await pending; expect(r.getOriginalZipBytes()).toEqual(original); expect(r.bundleSha256).toBe(memberSha(original));
+    const padded = new Uint8Array(original.length + 12); padded.set(original, 6); expect((await loadBundleBytes(padded.subarray(6, 6 + original.length))).bundleSha256).toBe(memberSha(original));
+  });
+  it('keeps original ZIP, member bytes and source point buffers behind independent copy accessors', async () => {
+    const r = await loadBundleBytes(bundleZip()), zip = r.getOriginalZipBytes(), member = r.getMemberBytes('frames/000.pcd')!, xyz = r.getFramePoints('0');
+    const oldZip = zip.slice(), oldMember = member.slice(), oldPoints = xyz.slice(); zip.fill(0); member.fill(0); xyz.fill(123);
+    expect(r.getOriginalZipBytes()).toEqual(oldZip); expect(r.getMemberBytes('frames/000.pcd')).toEqual(oldMember); expect(r.getFramePoints('0')).toEqual(oldPoints);
+    expect(r.getMemberBytes('../secret')).toBeUndefined(); expect(r.getMemberBytes('__proto__')).toBeUndefined(); expect(r.getMemberBytes('constructor')).toBeUndefined();
+    expect(() => r.getFramePoints('missing')).toThrowError(BundleLoadError);
+  });
+  it('deep-freezes manifest, nested unknown labels, normalized boxes and public metadata', async () => {
+    const members = bundleMembers(), l = labels(); l.extra = { nested: [{ arbitrary: 'kept' }] }; members['labels.openlabel.json'] = manifestBytes(l);
+    const r = await loadBundleBytes(bundleZip(members));
+    for (const value of [r, r.manifest, r.manifest.frames, r.manifest.sourceOrigin, r.labelsDocument, r.frames, r.frames[0], r.frames[0].boxes[0], r.frames[0].boxes[0].box.center, r.memberPaths, r.memberHashes, r.historicalMetadata]) expect(Object.isFrozen(value)).toBe(true);
+    expect(() => { (r.manifest.frames[0] as any).pointCount = 0; }).toThrow();
+    expect(() => { (r.labelsDocument.extra as any).nested[0].arbitrary = 'changed'; }).toThrow();
+    expect(() => { (r.frames[0].boxes[0].box.center as any)[0] = 99; }).toThrow();
+    expect(() => { (r as any).getOriginalZipBytes = () => new Uint8Array(); }).toThrow();
+    expect(r.labelsDocument).toEqual(l);
+  });
+  it('preserves unknown JSON, Unicode and prototype-like IDs as ordinary source data', async () => {
+    const members = bundleMembers(), l = labels();
+    l.openlabel.objects = JSON.parse('{"__proto__":{"type":"Vehicle","attributes":{"text":"ہنان"}}}');
+    const frame = l.openlabel.frames['0']; frame.objects = JSON.parse('{"__proto__":'+JSON.stringify(frame.objects['object-01'])+'}');
+    l.openlabel.frames = JSON.parse('{"constructor":'+JSON.stringify(frame)+'}'); members['labels.openlabel.json'] = manifestBytes(l);
+    changeBundleManifest(members, m => { m.frames[0].id = 'constructor'; });
+    const r = await loadBundleBytes(bundleZip(members)); expect(r.frames[0].id).toBe('constructor'); expect(r.frames[0].boxes[0].id).toBe('__proto__');
+    expect(r.labelsDocument).toEqual(l); expect(({} as any).type).toBeUndefined(); expect(r.getFramePoints('constructor').length).toBe(24);
+  });
+  it('retains source coordinates, large sourceOrigin and signed yaw without display transforms', async () => {
+    const members = bundleMembers(), l = labels(); val(l).splice(0, 7, 12, -7, 4, 0, 0, Math.sin(-0.7 / 2), Math.cos(-0.7 / 2));
+    members['labels.openlabel.json'] = manifestBytes(l); changeBundleManifest(members, m => { m.sourceOrigin = [1000000, -2000000, 3000000]; });
+    const r = await loadBundleBytes(bundleZip(members)); expect(r.manifest.sourceOrigin).toEqual([1000000, -2000000, 3000000]);
+    expect(r.frames[0].boxes[0].box.center).toEqual([12, -7, 4]); expect(r.frames[0].boxes[0].box.yaw).toBeCloseTo(-0.7, 12);
+    expect(r.getFramePoints('0')).toEqual(parseCanonicalPcd(members['frames/000.pcd'], 'frame', 8));
+  });
+  it('supports ten manifest-ordered frames and zero labels without inferring IDs or timestamps', async () => {
+    const members = bundleMembers(), l = labels(), first = structuredClone(l.openlabel.frames['0']); delete first.objects;
+    l.openlabel.objects = {}; l.openlabel.frames = {};
+    changeBundleManifest(members, m => {
+      m.frames = Array.from({ length: 10 }, (_, i) => ({ ...m.frames[0], id: `frame-${9 - i}`, timestamp: -10 + i / 3, pcd: `frames/${String(i).padStart(3, '0')}.pcd` }));
+      for (const f of m.frames) { members[f.pcd] = members['frames/000.pcd'].slice(); l.openlabel.frames[f.id] = { ...first, frame_properties: { timestamp: f.timestamp } }; }
+    });
+    members['labels.openlabel.json'] = manifestBytes(l); const r = await loadBundleBytes(bundleZip(members));
+    expect(r.frames.map(f => f.id)).toEqual(Array.from({ length: 10 }, (_, i) => `frame-${9 - i}`)); expect(r.frames.every(f => f.boxes.length === 0)).toBe(true);
+  });
+  it('accepts a real-source declaration with nonempty rights text without fetching provenance URLs', async () => {
+    const members = bundleMembers(); changeBundleManifest(members, m => { m.source.kind = 'real'; m.source.url = 'https://example.invalid/recorded-capture'; m.source.name = 'Independent source-shaped fixture'; });
+    const fetcher = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Unexpected network use'));
+    try { const r = await loadBundleBytes(bundleZip(members)); expect(r.manifest.source.kind).toBe('real'); expect(fetcher).not.toHaveBeenCalled(); } finally { fetcher.mockRestore(); }
+  });
+  it('keeps optional audit/review as deeply frozen untrusted historical metadata only', async () => {
+    const members = bundleMembers(), audit = { approved: true, administrator: true, records: [{ previousRevision: 99 }] }, review = { base_revision: 300, verdicts: ['pretend-saved'], aiConsent: true };
+    members['audit.json'] = manifestBytes(audit); members['review.json'] = manifestBytes(review); changeBundleManifest(members, m => { m.hashes['audit.json'] = '0'.repeat(64); m.hashes['review.json'] = '0'.repeat(64); });
+    const r = await loadBundleBytes(bundleZip(members)); expect(r.historicalMetadata).toEqual({ audit, review });
+    expect((r as any).approved).toBeUndefined(); expect((r as any).currentRevision).toBeUndefined(); expect((r as any).aiConsent).toBeUndefined();
+    expect(Object.isFrozen((r.historicalMetadata.audit as any).records[0])).toBe(true);
+    expect(r.getMemberBytes('audit.json')).toEqual(members['audit.json']);
+  });
+  it.each([null, {}, new Uint16Array(3), new Uint8Array(new SharedArrayBuffer(3))])('rejects non-byte/shared bundle input %#', async input => { await badBundle(input, 'INPUT'); });
+  it('rejects above the compressed ceiling before decoding or hashing', async () => { await badBundle(new Uint8Array(25 * 1024 * 1024 + 1), 'INPUT'); });
+  it('fails closed when Web Crypto is unavailable or rejects SHA-256', async () => {
+    const original = globalThis.crypto;
+    for (const crypto of [undefined, { subtle: { digest: async () => { throw Error('refused'); } } }, { subtle: { digest: async () => new ArrayBuffer(31) } }]) {
+      vi.stubGlobal('crypto', crypto); try { await badBundle(bundleZip(), 'CRYPTO'); } finally { vi.stubGlobal('crypto', original); }
+    }
+    vi.unstubAllGlobals();
+  });
+  it('wraps invalid ZIP errors with archive and member context', async () => {
+    const e = await badBundle(new Uint8Array([1, 2, 3]), 'ZIP'); expect(e.causeCode).toBe('FORMAT'); expect(e.memberPath).toBeNull();
+    const members = bundleMembers(); members['../outside'] = new Uint8Array([1]); const p = await badBundle(bundleZip(members), 'ZIP'); expect(p.causeCode).toBe('PATH'); expect(p.memberPath).toBe('../outside');
+  });
+  it('rejects malformed manifest JSON and missing licence declarations with field context', async () => {
+    const members = bundleMembers(); members['manifest.json'] = new TextEncoder().encode('{'); const malformed = await badBundle(bundleZip(members, false), 'MANIFEST'); expect(malformed.memberPath).toBe('manifest.json'); expect(malformed.causeCode).toBe('JSON');
+    const other = bundleMembers(); changeBundleManifest(other, m => { delete m.source.licence; }); const e = await badBundle(bundleZip(other), 'MANIFEST'); expect(e.field).toBe('source.licence');
+  });
+  it.each(['frames/001.pcd', 'audit.json', 'review.json'])('rejects undeclared member %s', async name => {
+    const members = bundleMembers(); members[name] = members['frames/000.pcd']; const e = await badBundle(bundleZip(members), 'MEMBER_SET'); expect(e.memberPath).toBe(name);
+  });
+  it.each(['audit.json', 'review.json'])('rejects declared but missing optional member %s', async name => {
+    const members = bundleMembers(); changeBundleManifest(members, m => { m.hashes[name] = '0'.repeat(64); }); const e = await badBundle(bundleZip(members), 'MEMBER_SET'); expect(e.memberPath).toBe(name);
+  });
+  it('rejects a missing declared frame before reading point content', async () => {
+    const members = bundleMembers(); changeBundleManifest(members, m => { m.frames.push({ ...m.frames[0], id: 'other', timestamp: 1, pcd: 'frames/001.pcd' }); }); const e = await badBundle(bundleZip(members), 'MEMBER_SET'); expect(e.frameId).toBe('other'); expect(e.memberPath).toBe('frames/001.pcd');
+  });
+  it.each(['frames/000.pcd', 'labels.openlabel.json', 'LICENSE.txt', 'ATTRIBUTION.txt'])('rejects a stale SHA-256 for %s despite valid ZIP CRC', async name => {
+    const members = bundleMembers(); members[name] = new Uint8Array([...members[name], 32]); const e = await badBundle(bundleZip(members, false), 'HASH'); expect(e.memberPath).toBe(name); expect(e.field).toBe('sha256'); if (name.endsWith('.pcd')) expect(e.frameId).toBe('0');
+  });
+  it('verifies every declared member hash before attempting even validly hashed malformed labels', async () => {
+    const members = bundleMembers(); members['labels.openlabel.json'] = new TextEncoder().encode('{'); const zip = bundleZip(members); const values = unzipSync(zip); values['LICENSE.txt'] = new TextEncoder().encode('changed rights');
+    const e = await badBundle(bundleZip(values, false), 'HASH'); expect(e.memberPath).toBe('LICENSE.txt');
+  });
+  it.each(['LICENSE.txt', 'ATTRIBUTION.txt'])('rejects empty/whitespace, invalid UTF-8 and NUL in verified rights member %s', async name => {
+    for (const bytes of [new Uint8Array(), new TextEncoder().encode(' \r\n\t'), new Uint8Array([0xff]), new Uint8Array([65, 0, 66])]) {
+      const members = bundleMembers(); members[name] = bytes; const e = await badBundle(bundleZip(members), 'RIGHTS'); expect(e.memberPath).toBe(name);
+    }
+  });
+  it('preserves valid Unicode/BOM rights byte identity while decoding readable text', async () => {
+    const members = bundleMembers(); members['LICENSE.txt'] = new TextEncoder().encode('\ufeffMIT\r\nحقوق'); members['ATTRIBUTION.txt'] = new TextEncoder().encode('هنا\tAuthor\n');
+    const r = await loadBundleBytes(bundleZip(members)); expect(r.licenceText).toBe('MIT\r\nحقوق'); expect(r.getMemberBytes('LICENSE.txt')).toEqual(members['LICENSE.txt']);
+  });
+  it('rejects malformed PCD and count disagreement with frame/file/field context after hash verification', async () => {
+    const members = bundleMembers(); members['frames/000.pcd'] = new Uint8Array([1, 2, 3]); const e = await badBundle(bundleZip(members), 'PCD'); expect(e.frameId).toBe('0'); expect(e.memberPath).toBe('frames/000.pcd');
+    const other = bundleMembers(); changeBundleManifest(other, m => { m.frames[0].pointCount = 9; }); const count = await badBundle(bundleZip(other), 'PCD'); expect(count.causeCode).toBe('POINT_COUNT'); expect(count.field).toBe('manifest.pointCount');
+  });
+  it('rejects verified non-finite PCD coordinates instead of returning a partial source', async () => {
+    const members = bundleMembers(), bytes = members['frames/000.pcd']; new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).setFloat32(bytes.length - 4, NaN, true);
+    const e = await badBundle(bundleZip(members), 'PCD'); expect(e.causeCode).toBe('NON_FINITE'); expect(e.field).toContain('point[');
+  });
+  it('rejects verified label frame/timestamp/reference mismatches with original context', async () => {
+    for (const change of [(l: any) => { l.openlabel.frames['0'].frame_properties.timestamp = 1; }, (l: any) => { delete l.openlabel.objects['object-01']; }, (l: any) => { l.openlabel.frames.extra = l.openlabel.frames['0']; }]) {
+      const members = bundleMembers(), l = labels(); change(l); members['labels.openlabel.json'] = manifestBytes(l); const e = await badBundle(bundleZip(members), 'LABELS'); expect(e.memberPath).toBe('labels.openlabel.json');
+    }
+  });
+  it('rejects verified pitched label geometry with frame/object/field context', async () => {
+    const members = bundleMembers(), l = labels(); val(l).splice(3, 4, Math.sin(0.1), 0, 0, Math.cos(0.1)); members['labels.openlabel.json'] = manifestBytes(l);
+    const e = await badBundle(bundleZip(members), 'LABELS'); expect(e.frameId).toBe('0'); expect(e.objectId).toBe('object-01'); expect(e.field).toContain('cuboid');
+  });
+  it.each(['audit.json', 'review.json'])('requires matching hash for historical member %s before parsing it', async name => {
+    const members = bundleMembers(); members[name] = new TextEncoder().encode('{'); changeBundleManifest(members, m => { m.hashes[name] = '0'.repeat(64); }); const e = await badBundle(bundleZip(members, false), 'HASH'); expect(e.memberPath).toBe(name);
+  });
+  it.each(['{', '{"x":1,"x":2}', '{"x":1e400}', '['.repeat(33)+'0'+']'.repeat(33)])('rejects malformed/non-finite/duplicate/deep verified history %#', async text => {
+    const members = bundleMembers(); members['audit.json'] = new TextEncoder().encode(text); changeBundleManifest(members, m => { m.hashes['audit.json'] = '0'.repeat(64); }); const e = await badBundle(bundleZip(members), 'HISTORICAL_JSON'); expect(e.memberPath).toBe('audit.json');
+  });
+  it('caps verified history nodes using a small bounded JSON payload', async () => {
+    const members = bundleMembers(); members['review.json'] = manifestBytes(Array(100001).fill(0)); changeBundleManifest(members, m => { m.hashes['review.json'] = '0'.repeat(64); }); await badBundle(bundleZip(members), 'HISTORICAL_JSON');
+  });
+  it('does not self-validate source dataset digest as the uploaded bundle hash', async () => {
+    const members = bundleMembers(); changeBundleManifest(members, m => { m.source.sha256 = 'a'.repeat(64); }); const zip = bundleZip(members), r = await loadBundleBytes(zip);
+    expect(r.manifest.source.sha256).toBe('a'.repeat(64)); expect(r.bundleSha256).toBe(memberSha(zip)); expect(r.memberHashes['manifest.json']).toBe(memberSha(members['manifest.json']));
   });
 });
