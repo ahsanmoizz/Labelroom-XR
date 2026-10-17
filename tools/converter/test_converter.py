@@ -1,4 +1,4 @@
-"""Independent validator tests. Fixtures are synthetic, never real-data proof."""
+"""Independent validator and generic conversion tests; synthetic evidence only."""
 import argparse
 import copy
 import hashlib
@@ -14,11 +14,15 @@ import tempfile
 import unittest
 import warnings
 import zipfile
+from unittest import mock
 
 HERE = Path(__file__).absolute().parent
 spec = importlib.util.spec_from_file_location("labelxr_independent_validator", HERE / "validate.py")
 validator = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(validator)
+converter_spec = importlib.util.spec_from_file_location("labelxr_generic_converter", HERE / "convert.py")
+converter = importlib.util.module_from_spec(converter_spec)
+converter_spec.loader.exec_module(converter)
 SUPPLIED_FIXTURE = HERE.parents[1] / "fixtures/contract-example.zip"
 
 
@@ -369,16 +373,259 @@ class ValidatorTests(unittest.TestCase):
                 validator.validate_bundle(bytearray(self.archive()))
 
 
+class ConversionTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.pcd = self.root / "pcd"
+        self.pcd.mkdir()
+        self.output = self.root / "clip.lrx.zip"
+        self.members, _, self.labels = fixture()
+        self.labels["openlabel"]["frames"]["0"]["objects"]["track-A"]["object_data"]["cuboid"][0]["val"][:3] = [1002, 2003, -96]
+        self.mapping = {"schemaVersion": "labelxr-generic-source/v1", "units": "meters", "coordinates": "x-y-ground-z-up",
+                        "coordinateFrame": "registered-world-common", "binaryByteOrder": "little",
+                        "source": {"name": "Synthetic analytic conversion", "kind": "synthetic-test", "url": "",
+                                   "licence": "Synthetic test only", "attribution": "Hand-known geometry"},
+                        "frames": [{"id": "0", "timestamp": 0.125, "pcd": "scan-000.pcd"}]}
+        self.points = [(998.75, 1997.5, -99), (1001.25, 2002.5, -101)]
+        self.write_pcd()
+        (self.root / "LICENSE.txt").write_bytes(self.members["LICENSE.txt"])
+        (self.root / "ATTRIBUTION.txt").write_bytes(self.members["ATTRIBUTION.txt"])
+        self.write_json()
+
+    def write_json(self):
+        (self.root / "labels.json").write_bytes(encoded(self.labels))
+        (self.root / "map.json").write_bytes(encoded(self.mapping))
+
+    def write_pcd(self, mode="ascii", points=None, name="scan-000.pcd"):
+        points = self.points if points is None else points
+        data = point_bytes(points)
+        if mode == "ascii":
+            data = data[:data.index(b"DATA binary")] + b"DATA ascii\n" + b"\n".join(" ".join(format(v, ".17g") for v in point).encode() for point in points) + b"\n"
+        (self.pcd / name).write_bytes(data)
+
+    def kwargs(self):
+        return dict(pcd_dir=self.pcd, labels=self.root / "labels.json", mapping=self.root / "map.json",
+                    license_file=self.root / "LICENSE.txt", attribution=self.root / "ATTRIBUTION.txt", output=self.output)
+
+    def run_conversion(self):
+        return converter.convert_generic(**self.kwargs())
+
+    def fails_conversion(self):
+        with self.assertRaises((converter.ConversionError, converter.validator.ValidationError, OSError, ValueError)):
+            self.run_conversion()
+        self.assertFalse(self.output.exists())
+        self.assertFalse(list(self.root.glob(".labelxr-owned-*")))
+
+    def contents(self):
+        with zipfile.ZipFile(self.output) as z:
+            return {n: z.read(n) for n in z.namelist()}
+
+    def test_convert_ascii_known_world_roundtrip_and_origin(self):
+        before = {p: p.read_bytes() for p in self.root.rglob("*") if p.is_file()}
+        r = self.run_conversion()
+        self.assertTrue(r["sourceWorldBoxesChecked"])
+        self.assertEqual((r["frameCount"], r["pointCount"], r["boxCount"]), (1, 2, 1))
+        members = self.contents(); manifest = json.loads(members["manifest.json"])
+        self.assertEqual(manifest["sourceOrigin"], [1000, 2000, -100])
+        proof = validator.validate_bundle(self.output.read_bytes(), encoded({"schemaVersion": "labelxr-world-boxes/v1", "boxes": [
+            {"frameId": "0", "objectId": "track-A", "center": [1002, 2003, -96], "size": [4, 2, 2], "yaw": math.pi / 2}]}))
+        self.assertEqual(proof["frames"][0]["localBounds"], [[-1.25, -2.5, -1], [1.25, 2.5, 1]])
+        self.assertEqual({p: p.read_bytes() for p in before}, before)
+        self.assertNotEqual(r["sourceSha256"], r["bundleSha256"])
+
+    def test_convert_binary_preserves_all_points_and_order(self):
+        self.write_pcd("binary")
+        self.run_conversion()
+        data = self.contents()["frames/000.pcd"]
+        self.assertEqual(list(struct.iter_unpack("<fff", data[data.index(b"DATA binary\n") + 12:])), [(-1.25, -2.5, 1), (1.25, 2.5, -1)])
+
+    def test_convert_deterministic_bytes_across_paths_and_no_private_paths(self):
+        self.run_conversion(); original = self.output.read_bytes()
+        self.output = self.root / "other-name.zip"
+        self.run_conversion()
+        self.assertEqual(self.output.read_bytes(), original)
+        self.assertNotIn(str(self.root).encode(), original)
+        with zipfile.ZipFile(self.output) as z:
+            self.assertTrue(all(i.date_time == (1980, 1, 1, 0, 0, 0) and i.compress_type == 0 for i in z.infolist()))
+
+    def test_convert_metadata_classes_ids_sizes_and_signed_yaw_retained(self):
+        val = self.labels["openlabel"]["frames"]["0"]["objects"]["track-A"]["object_data"]["cuboid"][0]["val"]
+        val[3:7] = [0, 0, -math.sin(0.375), -math.cos(0.375)]
+        val[7:] = [4.25, 1.75, 2.125]
+        self.write_json(); self.run_conversion()
+        out = json.loads(self.contents()["labels.openlabel.json"])
+        original = copy.deepcopy(self.labels)
+        original["openlabel"]["frames"]["0"]["objects"]["track-A"]["object_data"]["cuboid"][0]["val"][:3] = [2, 3, 4]
+        receipt = out["openlabel"]["metadata"].pop("labelroom_converter")
+        self.assertEqual(out, original)
+        self.assertEqual(receipt["inputInventory"]["hashes"]["labels.openlabel.json"], hashlib.sha256((self.root / "labels.json").read_bytes()).hexdigest())
+
+    def test_convert_ten_frames_keep_single_origin_and_explicit_ids(self):
+        for i in range(1, 10):
+            self.mapping["frames"].append({"id": f"frame-{i}", "timestamp": i + .125, "pcd": f"scan-{i:03}.pcd"})
+            self.labels["openlabel"]["frames"][f"frame-{i}"] = copy.deepcopy(self.labels["openlabel"]["frames"]["0"])
+            self.labels["openlabel"]["frames"][f"frame-{i}"]["frame_properties"]["timestamp"] = i + .125
+            self.write_pcd(points=[(1000 + i, 2000, -100)], name=f"scan-{i:03}.pcd")
+        self.write_json(); r = self.run_conversion()
+        self.assertEqual((r["frameCount"], r["pointCount"], r["boxCount"]), (10, 11, 10))
+        proof = validator.validate_bundle(self.output.read_bytes())
+        self.assertEqual(proof["frames"][-1]["localBounds"], [[9, 0, 0], [9, 0, 0]])
+
+    def test_convert_odd_median_and_nonzero_ascii_roundoff(self):
+        self.write_pcd(points=[(1000.1, 2000, -100), (1000.2, 2001, -101), (1000.9, 2002, -102)])
+        self.run_conversion()
+        self.assertEqual(json.loads(self.contents()["manifest.json"])["sourceOrigin"], [1000.2, 2001, -101])
+
+    def test_convert_requires_common_world_metres_and_little_endian(self):
+        for key, bad in [("units", "millimeters"), ("coordinates", "camera"), ("coordinateFrame", "frame-local"), ("binaryByteOrder", "big")]:
+            saved = self.mapping[key]; self.mapping[key] = bad; self.write_json()
+            with self.subTest(key=key): self.fails_conversion()
+            self.mapping[key] = saved
+
+    def test_convert_rejects_frame_map_unknown_missing_or_duplicate_keys(self):
+        for data in [encoded({**self.mapping, "guess": True}), b'{"units":"meters","units":"meters"}', encoded([])]:
+            (self.root / "map.json").write_bytes(data); self.fails_conversion()
+
+    def test_convert_rejects_duplicate_ids_times_and_casefold_paths(self):
+        for row in [{"id": "0", "timestamp": 1, "pcd": "two.pcd"}, {"id": "1", "timestamp": .125, "pcd": "two.pcd"},
+                    {"id": "1", "timestamp": 1, "pcd": "SCAN-000.pcd"}, {"id": [], "timestamp": 1, "pcd": "two.pcd"}]:
+            self.mapping["frames"] = [self.mapping["frames"][0], row]; self.write_json(); self.fails_conversion()
+
+    def test_convert_rejects_unsafe_windows_reserved_or_traversal_paths(self):
+        for name in ["../a.pcd", "dir/a.pcd", "C:\\x.pcd", "CON.pcd", "LPT1.pcd", "a.PCD", "a.pcd "]:
+            self.mapping["frames"][0]["pcd"] = name; self.write_json(); self.fails_conversion()
+
+    def test_convert_rejects_zero_or_eleven_frames(self):
+        for frames in [[], self.mapping["frames"] * 11]:
+            self.mapping["frames"] = frames; self.write_json(); self.fails_conversion()
+
+    def test_convert_requires_exact_label_frame_set_timestamp_and_global_refs(self):
+        for mutate in [lambda: self.labels["openlabel"]["frames"].update(extra={}),
+                       lambda: self.labels["openlabel"]["frames"]["0"]["frame_properties"].update(timestamp=1),
+                       lambda: self.labels["openlabel"].update(objects={})]:
+            saved = copy.deepcopy(self.labels); mutate(); self.write_json(); self.fails_conversion(); self.labels = saved
+
+    def test_convert_rejects_reserved_metadata_collision(self):
+        self.labels["openlabel"]["metadata"]["labelroom_converter"] = {}; self.write_json(); self.fails_conversion()
+
+    def test_convert_rejects_pitched_invalid_sizes_and_distant_boxes(self):
+        val = self.labels["openlabel"]["frames"]["0"]["objects"]["track-A"]["object_data"]["cuboid"][0]["val"]
+        saved = val.copy()
+        for v in [[*saved[:3], .2, 0, 0, .98, *saved[7:]], [*saved[:7], .01, 2, 2], [2000, *saved[1:]], [*saved[:3], 0, 0, 0, 2, *saved[7:]]]:
+            val[:] = v; self.write_json(); self.fails_conversion()
+
+    def test_convert_rejects_nonfinite_or_extra_ascii_tokens(self):
+        p = self.pcd / "scan-000.pcd"; original = p.read_bytes()
+        for suffix in [b"nan 0 0\n0 0 0", b"inf 0 0\n0 0 0", b"1e309 0 0\n0 0 0", b"0 0 0", b"0 0 0\n0 0 0\n0", b"0x1 0 0\n0 0 0"]:
+            p.write_bytes(original[:original.index(b"DATA ascii\n") + 11] + suffix); self.fails_conversion()
+
+    def test_convert_rejects_binary_length_nan_and_compressed_layouts(self):
+        self.write_pcd("binary"); p = self.pcd / "scan-000.pcd"; original = p.read_bytes()
+        for value in [original[:-1], original + b"x", original[:-24] + struct.pack("<ffffff", math.nan, 0, 0, 0, 0, 0), original.replace(b"DATA binary", b"DATA binary_compressed")]:
+            p.write_bytes(value); self.fails_conversion()
+
+    def test_convert_rejects_nonidentity_viewpoint_and_extra_fields(self):
+        p = self.pcd / "scan-000.pcd"; original = p.read_bytes()
+        for value in [original.replace(b"VIEWPOINT 0 0 0", b"VIEWPOINT 1 0 0"), original.replace(b"FIELDS x y z", b"FIELDS x y z intensity"), original.replace(b"TYPE F F F", b"TYPE D D D"), original.replace(b"WIDTH 2", b"WIDTH 3")]:
+            p.write_bytes(value); self.fails_conversion()
+
+    def test_convert_rejects_header_byte_count_and_source_byte_limits(self):
+        p = self.pcd / "scan-000.pcd"; original = p.read_bytes()
+        for value in [b"#" + b"a" * 16384 + b"\n" + original, original.replace(b"POINTS 2", b"POINTS 200001"), original.replace(b"POINTS 2", b"POINTS 0")]:
+            p.write_bytes(value); self.fails_conversion()
+        p.write_bytes(original)
+        with mock.patch.object(converter, "SOURCE_FRAME_LIMIT", 8): self.fails_conversion()
+        with mock.patch.object(converter, "SOURCE_TOTAL_LIMIT", 8): self.fails_conversion()
+
+    def test_convert_never_drops_outliers(self):
+        self.write_pcd(points=[(0, 0, 0), (0, 0, 0), (251, 0, 0)])
+        self.fails_conversion()
+
+    def test_convert_rights_bytes_preserved_and_empty_or_invalid_refused(self):
+        path = self.root / "LICENSE.txt"
+        for data in [b"", b" \r\n", b"\xff", b"rights\x00"]:
+            path.write_bytes(data); self.fails_conversion()
+        path.write_bytes(b"\xef\xbb\xbfRights\r\n"); self.run_conversion()
+        self.assertEqual(self.contents()["LICENSE.txt"], path.read_bytes())
+
+    def test_convert_real_provenance_requires_url_and_bounded_declarations(self):
+        self.mapping["source"]["kind"] = "real"; self.write_json(); self.fails_conversion()
+        self.mapping["source"]["url"] = "https://example.org/source"; self.write_json()
+        receipt = self.run_conversion()
+        self.assertEqual(json.loads(self.contents()["manifest.json"])["source"]["kind"], "real")
+        self.assertEqual(receipt["rights"], "declarations validated; external rights evidence not adjudicated")
+
+    def test_convert_maximum_point_count_kept_without_sampling(self):
+        self.write_pcd("binary", points=[(1000, 2000, -100)] * 200000)
+        receipt = self.run_conversion()
+        self.assertEqual(receipt["pointCount"], 200000)
+        self.assertEqual(validator.validate_bundle(self.output.read_bytes())["pointCount"], 200000)
+
+    def test_convert_existing_output_never_overwritten(self):
+        self.output.write_bytes(b"existing")
+        with self.assertRaises(converter.ConversionError): self.run_conversion()
+        self.assertEqual(self.output.read_bytes(), b"existing")
+        self.assertFalse(list(self.root.glob(".labelxr-owned-*")))
+
+    def test_convert_atomic_output_race_and_unsupported_link_leave_no_owned_temp(self):
+        real_link = converter.os.link
+        def raced(source, target):
+            Path(target).write_bytes(b"racer")
+            return real_link(source, target)
+        with mock.patch.object(converter.os, "link", raced), self.assertRaises(FileExistsError): self.run_conversion()
+        self.assertEqual(self.output.read_bytes(), b"racer")
+        self.assertFalse(list(self.root.glob(".labelxr-owned-*")))
+        self.output.unlink()
+        with mock.patch.object(converter.os, "link", side_effect=OSError("unsupported")): self.fails_conversion()
+
+    def test_convert_source_changed_before_publish_fails_closed(self):
+        original = converter.read; seen = 0
+        def changed(path, limit, member):
+            nonlocal seen
+            value = original(path, limit, member)
+            if member == "scan-000.pcd":
+                seen += 1
+                if seen == 2: return value + b"\n"
+            return value
+        with mock.patch.object(converter, "read", changed): self.fails_conversion()
+
+    def test_convert_redirected_input_or_output_parent_refused(self):
+        # Directory junction creation needs privileges on some Windows machines;
+        # exercise the exact lstat branch deterministically without skipping it.
+        original = converter.Path.lstat
+        def redirected(path):
+            s = original(path)
+            if path == self.pcd:
+                return type("ReparseStat", (), {"st_mode": s.st_mode, "st_file_attributes": 0x400})()
+            return s
+        with mock.patch.object(converter.Path, "lstat", redirected): self.fails_conversion()
+
+    def test_convert_cli_receipt_invalid_input_and_no_geometry_leak(self):
+        command = [sys.executable, "-I", "-B", str(HERE / "convert.py"), "--pcd-dir", str(self.pcd), "--labels", str(self.root / "labels.json"),
+                   "--frame-map", str(self.root / "map.json"), "--license", str(self.root / "LICENSE.txt"), "--attribution", str(self.root / "ATTRIBUTION.txt"), "--out", str(self.output)]
+        p = subprocess.run(command, capture_output=True, timeout=20)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        r = json.loads(p.stdout); self.assertTrue(r["converted"]); self.assertNotIn("worldBoxes", r)
+        self.assertNotIn(str(self.root), p.stdout.decode())
+        self.output.unlink(); (self.root / "map.json").write_bytes(b"bad")
+        p = subprocess.run(command, capture_output=True, timeout=20)
+        self.assertEqual(p.returncode, 1); self.assertEqual(p.stdout, b"")
+        self.assertFalse(json.loads(p.stderr)["converted"]); self.assertFalse(self.output.exists())
+
+
 def main():
     global SUPPLIED_FIXTURE
     parser = argparse.ArgumentParser()
     parser.add_argument("--receipt", required=True)
     parser.add_argument("--fixture", required=True)
     args = parser.parse_args(); SUPPLIED_FIXTURE = args.fixture
-    suite = unittest.defaultTestLoader.loadTestsFromTestCase(ValidatorTests)
+    suite = unittest.TestSuite([*unittest.defaultTestLoader.loadTestsFromTestCase(ValidatorTests),
+                               *unittest.defaultTestLoader.loadTestsFromTestCase(ConversionTests)])
     names = [t.id().split(".")[-1] for t in suite]
     result = unittest.TextTestRunner(verbosity=2).run(suite)
-    receipt = {"schema": "labelxr-python-validator-tests/v1", "passed": result.wasSuccessful() and not result.skipped and result.testsRun == len(names), "count": result.testsRun, "tests": names, "failed": len(result.failures), "errors": len(result.errors), "skipped": len(result.skipped), "pythonVersion": sys.version.split()[0], "validatorSha256": hashlib.sha256((HERE / "validate.py").read_bytes()).hexdigest(), "testSha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(), "fixtureSha256": hashlib.sha256(Path(SUPPLIED_FIXTURE).read_bytes()).hexdigest()}
+    receipt = {"schema": "labelxr-python-generic-tests/v1", "passed": result.wasSuccessful() and not result.skipped and result.testsRun == len(names), "count": result.testsRun, "tests": names, "failed": len(result.failures), "errors": len(result.errors), "skipped": len(result.skipped), "pythonVersion": sys.version.split()[0], "validatorSha256": hashlib.sha256((HERE / "validate.py").read_bytes()).hexdigest(), "converterSha256": hashlib.sha256((HERE / "convert.py").read_bytes()).hexdigest(), "testSha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(), "fixtureSha256": hashlib.sha256(Path(SUPPLIED_FIXTURE).read_bytes()).hexdigest()}
     with open(args.receipt, "x", encoding="utf-8", newline="\n") as stream:
         json.dump(receipt, stream, sort_keys=True); stream.write("\n")
     print(json.dumps(receipt, sort_keys=True))
