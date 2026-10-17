@@ -1,7 +1,120 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { unzipSync } from 'fflate';
+import { parseManifestBytes, ManifestParseError } from '../../src/domain/schema';
 import { parseCanonicalPcd, PcdParseError } from '../../src/data/pcd';
+
+const exampleManifest = JSON.parse(readFileSync('contracts/manifest.example.json', 'utf8'));
+const manifestBytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value));
+const manifest = () => structuredClone(exampleManifest);
+function badManifest(value: unknown, field?: string, code = 'SCHEMA') {
+  let caught: unknown;
+  try { parseManifestBytes(value instanceof Uint8Array ? value : manifestBytes(value), 'clip/manifest.json'); } catch (e) { caught = e; }
+  expect(caught).toBeInstanceOf(ManifestParseError);
+  const error = caught as ManifestParseError;
+  expect(error.code).toBe(code); expect(error.filePath).toBe('clip/manifest.json');
+  expect(error.message).toContain('clip/manifest.json');
+  if (field) expect(error.field).toBe(field);
+  return error;
+}
+
+describe('DATA-01/02 manifest component (member hashes and full bundle gates remain pending)', () => {
+  it('accepts supplied contract and committed fixture manifest, preserving values and bytes', () => {
+    const bytes = unzipSync(new Uint8Array(readFileSync('fixtures/contract-example.zip')))['manifest.json'];
+    const before = bytes.slice(); expect(parseManifestBytes(bytes)).toEqual(exampleManifest); expect(bytes).toEqual(before);
+    const result = parseManifestBytes(manifestBytes(exampleManifest)); result.frames[0].id = 'changed';
+    expect(exampleManifest.frames[0].id).toBe('0');
+  });
+  it('accepts real source provenance, negative seconds, world translation and optional export hashes', () => {
+    const m = manifest(); m.source.kind = 'real'; m.source.url = 'https://example.org/dataset';
+    m.sourceOrigin = [1000000.25, -2000000, 3]; m.frames[0].timestamp = -1.5;
+    m.hashes['audit.json'] = 'a'.repeat(64); m.hashes['review.json'] = 'b'.repeat(64);
+    expect(parseManifestBytes(manifestBytes(m))).toEqual(m);
+  });
+  it('accepts exact frame/point/manifest byte ceilings and subarray offsets', () => {
+    const m = manifest(); m.frames = Array.from({ length: 10 }, (_, i) => ({ ...m.frames[0], id: String(i), timestamp: i / 10, pcd: `frames/${String(i).padStart(3, '0')}.pcd`, pointCount: 200000 }));
+    const json = manifestBytes(m); const bytes = new Uint8Array(128 * 1024).fill(32); bytes.set(json);
+    const backing = new Uint8Array(bytes.length + 7); backing.set(bytes, 3);
+    expect(parseManifestBytes(backing.subarray(3, 3 + bytes.length))).toEqual(m);
+  });
+  it.each(['schemaVersion', 'units', 'coordinates', 'bundleId'])('rejects unsupported %s', key => {
+    const m = manifest(); m[key] = 'unsupported'; badManifest(m, key);
+  });
+  it.each(['labels.openlabel.json', 'LICENSE.txt', 'ATTRIBUTION.txt'])('requires member hash %s', key => {
+    const m = manifest(); delete m.hashes[key]; badManifest(m, `hashes.${key}`);
+  });
+  it.each(['A'.repeat(64), '0'.repeat(63), 'g'.repeat(64), 123])('rejects malformed SHA-256 %s', hash => {
+    for (const where of ['source', 'frame', 'member']) {
+      const m = manifest(); if (where === 'source') m.source.sha256 = hash;
+      else if (where === 'frame') m.frames[0].sha256 = hash; else m.hashes['LICENSE.txt'] = hash;
+      badManifest(m);
+    }
+  });
+  it.each([0, -1, 1.5, 200001, '8', null])('refuses invalid point count %s without coercion', n => {
+    const m = manifest(); m.frames[0].pointCount = n; badManifest(m, 'frames[0].pointCount');
+  });
+  it('rejects zero/eleven frames, non-string IDs, duplicate IDs and point paths with frame location', () => {
+    for (const n of [0, 11]) { const m = manifest(); m.frames = Array.from({ length: n }, () => m.frames[0]); badManifest(m, 'frames'); }
+    const m = manifest(); m.frames[0].id = 0; badManifest(m, 'frames[0].id');
+    const d = manifest(); d.frames.push({ ...d.frames[0], pcd: 'frames/001.pcd', timestamp: 1 });
+    expect(badManifest(d, 'frames[1].id').frameId).toBe('0');
+    d.frames[1].id = 'one'; d.frames[1].pcd = d.frames[0].pcd; badManifest(d, 'frames[1].pcd');
+  });
+  it.each([0, -1, '1', null])('rejects non-increasing or coerced timestamp %s', n => {
+    const m = manifest(); m.frames.push({ ...m.frames[0], id: '1', pcd: 'frames/001.pcd', timestamp: n });
+    badManifest(m, 'frames[1].timestamp');
+  });
+  it('rejects overflowing JSON numbers in timestamps and sourceOrigin', () => {
+    const json = JSON.stringify(manifest());
+    badManifest(new TextEncoder().encode(json.replace('"timestamp":0', '"timestamp":1e400')), 'frames[0].timestamp');
+    badManifest(new TextEncoder().encode(json.replace('"sourceOrigin":[0,0,0]', '"sourceOrigin":[0,1e400,0]')), 'sourceOrigin[1]');
+  });
+  it.each(['../000.pcd', '/frames/000.pcd', 'C:\\frames\\000.pcd', 'frames/000.zip', 'frames/00.pcd', 'frames/000.PCD'])('rejects noncanonical point path %s', p => {
+    const m = manifest(); m.frames[0].pcd = p; badManifest(m, 'frames[0].pcd');
+  });
+  it('requires finite three-number sourceOrigin and meaningful licence/source fields', () => {
+    for (const origin of [[1, 2], [1, 2, 3, 4], [1, '2', 3], [1, null, 3]]) { const m = manifest(); m.sourceOrigin = origin; badManifest(m); }
+    for (const key of ['name', 'licence', 'attribution']) { const m = manifest(); m.source[key] = ' '; badManifest(m, `source.${key}`); }
+    const m = manifest(); m.source.kind = 'unknown'; badManifest(m, 'source.kind');
+  });
+  it.each(['', 'javascript:alert(1)', 'file:///x', 'https://user:password@example.org/x', ' https://example.org/x'])('rejects real provenance URL %s', url => {
+    const m = manifest(); m.source.kind = 'real'; m.source.url = url; badManifest(m, 'source.url');
+  });
+  it('rejects unknown manifest/source/frame/hash fields rather than silently dropping them', () => {
+    for (const where of ['root', 'source', 'frame', 'hashes']) {
+      const m = manifest(); const obj = where === 'root' ? m : where === 'frame' ? m.frames[0] : m[where]; obj.unexpected = 1; badManifest(m);
+    }
+  });
+  it('rejects invalid UTF-8, BOM, malformed JSON, non-object JSON and shared memory', () => {
+    badManifest(new Uint8Array([0xff]), 'file', 'UTF8');
+    const good = manifestBytes(manifest()); const bom = new Uint8Array(good.length + 3); bom.set([0xef, 0xbb, 0xbf]); bom.set(good, 3); badManifest(bom, 'file', 'UTF8');
+    for (const raw of ['', '{', '{"x":NaN}', '{"x":Infinity}']) badManifest(new TextEncoder().encode(raw), 'file', 'JSON');
+    for (const raw of [null, [], 7, 'string']) badManifest(raw);
+    badManifest(new Uint8Array(new SharedArrayBuffer(8)), 'file', 'INPUT');
+    expect(() => parseManifestBytes(null as unknown as Uint8Array)).toThrow(ManifestParseError);
+  });
+  it('rejects oversized bytes before JSON parsing and bounds text fields without truncation', () => {
+    badManifest(new Uint8Array(128 * 1024 + 1), 'file', 'BYTE_LIMIT');
+    for (const [key, limit] of [['name', 1024], ['url', 2048], ['licence', 1024], ['attribution', 4096]] as const) {
+      const m = manifest(); m.source[key] = 'x'.repeat(limit + 1); badManifest(m, `source.${key}`);
+    }
+    const m = manifest(); m.frames[0].id = 'x'.repeat(129); badManifest(m, 'frames[0].id');
+  });
+  it('rejects duplicate JSON keys, including equivalent escaped spellings and nested objects', () => {
+    const json = JSON.stringify(manifest());
+    for (const raw of [json.replace('"units":"meters"', '"units":"meters","units":"meters"'),
+      json.replace('"units":"meters"', '"units":"meters","\\u0075nits":"meters"'),
+      json.replace('"pointCount":8', '"pointCount":8,"pointCount":9')]) badManifest(new TextEncoder().encode(raw), 'file', 'JSON');
+  });
+  it('keeps key sets separate and ignores JSON-like punctuation inside strings', () => {
+    const m = manifest(); m.source.attribution = 'braces { } and \\"units\\": and ] [';
+    m.frames.push({ ...m.frames[0], id: '1', timestamp: 1, pcd: 'frames/001.pcd' });
+    expect(parseManifestBytes(manifestBytes(m))).toEqual(m);
+  });
+  it('rejects excessive JSON nesting before building a parsed object graph', () => {
+    badManifest(new TextEncoder().encode('['.repeat(17) + '0' + ']'.repeat(17)), 'file', 'JSON');
+  });
+});
 
 // Independent test writer: fixed header + DataView bytes, no parser helpers.
 function file(xyz: number[] = [1.25, -2.5, 3.75], edit: (header: string) => string = h => h) {
