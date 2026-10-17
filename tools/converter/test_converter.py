@@ -1,0 +1,389 @@
+"""Independent validator tests. Fixtures are synthetic, never real-data proof."""
+import argparse
+import copy
+import hashlib
+import importlib.util
+import io
+import json
+import math
+from pathlib import Path
+import struct
+import subprocess
+import sys
+import tempfile
+import unittest
+import warnings
+import zipfile
+
+HERE = Path(__file__).absolute().parent
+spec = importlib.util.spec_from_file_location("labelxr_independent_validator", HERE / "validate.py")
+validator = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(validator)
+SUPPLIED_FIXTURE = HERE.parents[1] / "fixtures/contract-example.zip"
+
+
+def encoded(value):
+    return json.dumps(value, ensure_ascii=True, separators=(",", ":"), allow_nan=True).encode()
+
+
+def point_bytes(points):
+    header = ("VERSION 0.7\nFIELDS x y z\nSIZE 4 4 4\nTYPE F F F\nCOUNT 1 1 1\n"
+              f"WIDTH {len(points)}\nHEIGHT 1\nVIEWPOINT 0 0 0 1 0 0 0\nPOINTS {len(points)}\nDATA binary\n").encode()
+    return header + b"".join(struct.pack("<fff", *p) for p in points)
+
+
+def fixture(count=1, object_id="track-A"):
+    values = [2, 3, 4, 0, 0, math.sqrt(0.5), math.sqrt(0.5), 4, 2, 2]
+    labels = {"openlabel": {"metadata": {"schema_version": "1.0.0", "unknown": ["retained", {"unicode": "\u03b1"}]}, "objects": {object_id: {"name": "asymmetric car", "type": "car", "attributes": {"source": 7}}}, "frames": {}}}
+    members = {"LICENSE.txt": b"Synthetic test rights\r\n", "ATTRIBUTION.txt": b"Analytic fixture, no real scan.\n"}
+    frames = []
+    for i in range(count):
+        fid, pcd = str(i), f"frames/{i:03}.pcd"
+        members[pcd] = point_bytes([(1.25, -2.5, 3), (-5, 1, 2)])
+        frames.append({"id": fid, "timestamp": i + 0.125, "pcd": pcd, "sha256": "0" * 64, "pointCount": 2})
+        labels["openlabel"]["frames"][fid] = {"frame_properties": {"timestamp": i + 0.125}, "objects": {object_id: {"object_data": {"cuboid": [{"name": "bbox", "val": values.copy(), "metadata": {"keep": True}}]}}}}
+    members["labels.openlabel.json"] = encoded(labels)
+    manifest = {"schemaVersion": "1.0", "bundleId": "12345678-1234-1234-1234-123456789abc", "source": {"name": "analytic independent test", "kind": "synthetic-test", "url": "", "licence": "Synthetic test only", "attribution": "Independent numerical test", "sha256": "a" * 64}, "sourceOrigin": [1000, 2000, -100], "units": "meters", "coordinates": "x-y-ground-z-up", "frames": frames, "hashes": {}}
+    return members, manifest, labels
+
+
+def pack(members, manifest, labels=None, method=zipfile.ZIP_DEFLATED, extras=()):
+    members = dict(members); manifest = copy.deepcopy(manifest)
+    if labels is not None:
+        members["labels.openlabel.json"] = encoded(labels)
+    for f in manifest["frames"]:
+        if f["pcd"] in members:
+            f["sha256"] = hashlib.sha256(members[f["pcd"]]).hexdigest()
+    manifest["hashes"] = {n: hashlib.sha256(b).hexdigest() for n, b in members.items() if n in {"labels.openlabel.json", "LICENSE.txt", "ATTRIBUTION.txt", "audit.json", "review.json"}}
+    members["manifest.json"] = encoded(manifest)
+    return raw_pack(list(members.items()) + list(extras), method)
+
+
+def raw_pack(items, method=zipfile.ZIP_DEFLATED):
+    out = io.BytesIO()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        with zipfile.ZipFile(out, "w", compression=method) as z:
+            for name, b in items:
+                z.writestr(name, b)
+    return out.getvalue()
+
+
+class ValidatorTests(unittest.TestCase):
+    def setUp(self):
+        self.members, self.manifest, self.labels = fixture()
+
+    def archive(self, **kwargs):
+        return pack(self.members, self.manifest, self.labels, **kwargs)
+
+    def fails(self, data, code=None, member=None):
+        with self.assertRaises(validator.ValidationError) as context:
+            validator.validate_bundle(data)
+        if code:
+            self.assertEqual(context.exception.code, code)
+        if member:
+            self.assertEqual(context.exception.member, member)
+        self.assertTrue(context.exception.field)
+
+    def val(self):
+        return self.labels["openlabel"]["frames"]["0"]["objects"]["track-A"]["object_data"]["cuboid"][0]["val"]
+
+    def reference(self, center=None, yaw=math.pi / 2):
+        return encoded({"schemaVersion": "labelxr-world-boxes/v1", "boxes": [{"frameId": "0", "objectId": "track-A", "center": center or [1002, 2003, -96], "size": [4, 2, 2], "yaw": yaw}]})
+
+    def test_analytic_world_coordinates_yaw_and_float32_points(self):
+        b = self.archive(); before = hashlib.sha256(b).hexdigest()
+        r = validator.validate_bundle(b, self.reference())
+        self.assertEqual(r["worldBoxes"][0]["center"], [1002, 2003, -96])
+        self.assertAlmostEqual(r["worldBoxes"][0]["yaw"], math.pi / 2, places=14)
+        self.assertEqual(r["worldBoxes"][0]["size"], [4, 2, 2])
+        self.assertEqual(r["frames"][0]["localBounds"], [[-5, -2.5, 2], [1.25, 1, 3]])
+        self.assertEqual(r["bundleSha256"], before)
+        self.assertEqual(hashlib.sha256(b).hexdigest(), before)
+        self.assertNotEqual(r["bundleSha256"], r["declaredSourceSha256"])
+
+    def test_stored_zip_and_rights_bom_newlines(self):
+        self.members["LICENSE.txt"] = b"\xef\xbb\xbfSynthetic rights\r\n"
+        r = validator.validate_bundle(self.archive(method=zipfile.ZIP_STORED))
+        self.assertEqual(r["memberHashes"]["LICENSE.txt"], hashlib.sha256(self.members["LICENSE.txt"]).hexdigest())
+
+    def test_data_descriptors_comments_and_bounded_extra_fields(self):
+        class Pipe(io.BytesIO):
+            def seek(self, *args):
+                raise OSError("nonseekable fixture")
+        original = self.archive()
+        with zipfile.ZipFile(io.BytesIO(original)) as z:
+            members = [(n, z.read(n)) for n in z.namelist()]
+        out = Pipe()
+        with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED) as z:
+            z.comment = b"comment PK fake footer"
+            for name, value in members:
+                info = zipfile.ZipInfo(name)
+                info.compress_type = zipfile.ZIP_DEFLATED
+                info.extra = struct.pack("<HHI", 0x5455, 4, 7)
+                z.writestr(info, value)
+        self.assertEqual(validator.validate_bundle(out.getvalue())["pointCount"], 2)
+
+    def test_numeric_integer_count_and_bounded_pcd_leading_zeros(self):
+        self.manifest["frames"][0]["pointCount"] = 2.0
+        self.members["frames/000.pcd"] = self.members["frames/000.pcd"].replace(b"WIDTH 2", b"WIDTH 0002").replace(b"POINTS 2", b"POINTS 0002")
+        self.assertEqual(validator.validate_bundle(self.archive())["pointCount"], 2)
+
+    def test_supplied_contract_zip_independent_validation(self):
+        self.assertIsNotNone(SUPPLIED_FIXTURE, "Pass --fixture for the supplied synthetic bundle")
+        data = Path(SUPPLIED_FIXTURE).read_bytes()
+        r = validator.validate_bundle(data)
+        self.assertTrue(r["valid"])
+        self.assertEqual(r["sourceKind"], "synthetic-test")
+        self.assertEqual(r["bundleSha256"], hashlib.sha256(data).hexdigest())
+
+    def test_ten_frames_and_prototype_like_ids(self):
+        m, h, l = fixture(10, "__proto__")
+        r = validator.validate_bundle(pack(m, h, l))
+        self.assertEqual((r["frameCount"], r["pointCount"], r["boxCount"]), (10, 20, 10))
+        self.assertEqual(r["worldBoxes"][-1]["objectId"], "__proto__")
+
+    def test_quaternion_sign_and_wrapped_negative_yaws(self):
+        for yaw in [0, -math.pi / 2, math.pi, -math.pi, 0.75]:
+            for sign in [1, -1]:
+                with self.subTest(yaw=yaw, sign=sign):
+                    self.val()[3:7] = [0, 0, sign * math.sin(yaw / 2), sign * math.cos(yaw / 2)]
+                    r = validator.validate_bundle(self.archive())
+                    self.assertLess(abs(math.atan2(math.sin(r["worldBoxes"][0]["yaw"] - yaw), math.cos(r["worldBoxes"][0]["yaw"] - yaw))), 1e-12)
+
+    def test_external_reference_tolerance_and_yaw_wrap(self):
+        validator.validate_bundle(self.archive(), self.reference([1002 + 0.000005, 2003, -96], math.pi / 2 + 2 * math.pi))
+        with self.assertRaises(validator.ValidationError) as c:
+            validator.validate_bundle(self.archive(), self.reference([1002 + 0.00002, 2003, -96]))
+        self.assertEqual(c.exception.code, "REFERENCE")
+
+    def test_external_reference_requires_exact_occurrence_set(self):
+        for boxes in [[], [{"frameId": "missing", "objectId": "track-A", "center": [1002, 2003, -96], "size": [4, 2, 2], "yaw": math.pi / 2}]]:
+            with self.subTest(boxes=boxes), self.assertRaises(validator.ValidationError):
+                validator.validate_bundle(self.archive(), encoded({"schemaVersion": "labelxr-world-boxes/v1", "boxes": boxes}))
+        ref = json.loads(self.reference()); ref["boxes"].append(copy.deepcopy(ref["boxes"][0]))
+        with self.assertRaises(validator.ValidationError):
+            validator.validate_bundle(self.archive(), encoded(ref))
+
+    def test_external_reference_size_and_yaw_mismatch(self):
+        for key, value in [("size", [4.01, 2, 2]), ("yaw", 0.0)]:
+            r = json.loads(self.reference()); r["boxes"][0][key] = value
+            with self.subTest(key=key), self.assertRaises(validator.ValidationError):
+                validator.validate_bundle(self.archive(), encoded(r))
+
+    def test_optional_history_is_only_finite_bounded_json(self):
+        self.members["audit.json"] = encoded({"approved": True, "revision": 999, "role": "owner"})
+        self.members["review.json"] = encoded(["untrusted"])
+        r = validator.validate_bundle(self.archive())
+        self.assertNotIn("approved", r); self.assertNotIn("revision", r)
+        self.assertEqual(r["boxCount"], 1)
+
+    def test_sha_checked_before_corrupt_semantics(self):
+        b = self.archive(method=zipfile.ZIP_STORED)
+        with zipfile.ZipFile(io.BytesIO(b)) as z:
+            files = {n: z.read(n) for n in z.namelist()}
+        files["labels.openlabel.json"] = b"not JSON"
+        self.fails(raw_pack(files.items()), "HASH", "labels.openlabel.json")
+
+    def test_unknown_or_undeclared_member(self):
+        self.fails(self.archive(extras=[("other.txt", b"no")]), "PATH")
+        self.fails(self.archive(extras=[("audit.json", b"{}")]), "MEMBER_SET")
+
+    def test_missing_required_member(self):
+        b = self.archive()
+        with zipfile.ZipFile(io.BytesIO(b)) as z:
+            files = [(n, z.read(n)) for n in z.namelist() if n != "LICENSE.txt"]
+        self.fails(raw_pack(files), "ZIP")
+
+    def test_traversal_absolute_drive_backslash_nested_zip(self):
+        for n in ["../x", "/x", "C:/x", "frames\\000.pcd", "nested.zip", "frames/../000.pcd", "frames/000.pcd/"]:
+            with self.subTest(path=n):
+                self.fails(self.archive(extras=[(n, b"bad")]), "PATH")
+
+    def test_duplicate_zip_member(self):
+        self.fails(self.archive(extras=[("LICENSE.txt", b"again")]), "PATH")
+
+    def test_crc_corruption(self):
+        b = bytearray(self.archive(method=zipfile.ZIP_STORED))
+        b[b.index(b"Synthetic test rights")] ^= 1
+        self.fails(bytes(b), "ZIP", "LICENSE.txt")
+
+    def test_truncated_prefixed_and_trailing_archives(self):
+        b = self.archive()
+        for bad in [b[:-1], b + b"junk", b"MZ" + b]:
+            with self.subTest(length=len(bad)):
+                self.fails(bad, "ZIP")
+
+    def test_symlink_member(self):
+        b = bytearray(self.archive()); p = b.index(b"PK\x01\x02")
+        struct.pack_into("<I", b, p + 38, 0o120777 << 16)
+        self.fails(bytes(b), "ZIP")
+
+    def test_encryption_zip64_and_method_rejected(self):
+        for offset, value in [(8, 1), (6, 45), (10, 99)]:
+            b = bytearray(self.archive()); p = b.index(b"PK\x01\x02")
+            struct.pack_into("<H", b, p + offset, value)
+            with self.subTest(offset=offset):
+                self.fails(bytes(b), "ZIP")
+
+    def test_declared_size_ceiling_before_inflation(self):
+        b = bytearray(self.archive()); p = b.index(b"PK\x01\x02")
+        struct.pack_into("<I", b, p + 24, 64 * 1024 + 1)
+        self.fails(bytes(b), "BYTE_LIMIT")
+
+    def test_actual_inflate_beyond_declared_size(self):
+        self.members["LICENSE.txt"] = b"a" * 60000
+        b = bytearray(self.archive()); p = b.index(b"PK\x01\x02"); local = struct.unpack_from("<I", b, p + 42)[0]
+        struct.pack_into("<I", b, p + 24, 1); struct.pack_into("<I", b, local + 22, 1)
+        self.fails(bytes(b), "BYTE_LIMIT", "LICENSE.txt")
+
+    def test_malformed_utf8_bom_duplicate_and_deep_json(self):
+        for raw in [b"\xff", b"\xef\xbb\xbf{}", b'{"a":1,"\\u0061":2}', b"[" * 33 + b"0" + b"]" * 33, b'{"x":NaN}', b'{"x":1e999}']:
+            self.members["review.json"] = raw
+            with self.subTest(raw=raw):
+                self.fails(self.archive())
+
+    def test_json_node_limit(self):
+        self.members["review.json"] = encoded([0] * 100000)
+        self.fails(self.archive(), "NODE_LIMIT")
+
+    def test_rights_empty_control_and_invalid_utf8(self):
+        for raw in [b"  \r\n", b"\xef\xbb\xbf \xef\xbb\xbf", b"rights\x00", b"\xff"]:
+            self.members["LICENSE.txt"] = raw
+            with self.subTest(raw=raw):
+                self.fails(self.archive(), "RIGHTS", "LICENSE.txt")
+
+    def test_source_rights_and_real_provenance(self):
+        self.manifest["source"]["kind"] = "real"
+        self.fails(self.archive(), member="manifest.json")
+        self.manifest["source"]["url"] = "https://example.org/licensed-source"
+        self.assertEqual(validator.validate_bundle(self.archive())["sourceKind"], "real")
+        for url in ["https://user:pass@example.org", "file:///x", " https://example.org", "https://example.org:bad"]:
+            self.manifest["source"]["url"] = url
+            with self.subTest(url=url):
+                self.fails(self.archive())
+
+    def test_manifest_units_origin_strict_fields_and_boolean_count(self):
+        for mutate in [lambda m: m.update(units="feet"), lambda m: m.update(sourceOrigin=[0, 0]), lambda m: m.update(extra=True), lambda m: m["frames"][0].update(pointCount=True), lambda m: m["source"].update(licence=" ")]:
+            saved = copy.deepcopy(self.manifest); mutate(self.manifest)
+            with self.subTest(manifest=self.manifest):
+                self.fails(self.archive(), member="manifest.json")
+            self.manifest = saved
+
+    def test_manifest_order_and_duplicate_frame_paths_ids(self):
+        m, h, l = fixture(2)
+        for field, value in [("id", "0"), ("pcd", "frames/000.pcd"), ("timestamp", 0.125)]:
+            mutated = copy.deepcopy(h); mutated["frames"][1][field] = value
+            with self.subTest(field=field):
+                self.fails(pack(m, mutated, l), member="manifest.json")
+
+    def test_frame_and_point_limits(self):
+        m, h, l = fixture(11)
+        self.fails(pack(m, h, l))
+        self.manifest["frames"][0]["pointCount"] = 200001
+        self.fails(self.archive(), member="manifest.json")
+
+    def test_pcd_ascii_extra_fields_bigendian_layout_refused(self):
+        original = self.members["frames/000.pcd"]
+        for old, new in [(b"DATA binary", b"DATA ascii"), (b"FIELDS x y z", b"FIELDS x y z intensity"), (b"SIZE 4 4 4", b"SIZE 8 8 8"), (b"HEIGHT 1", b"HEIGHT 2"), (b"VIEWPOINT 0 0 0 1 0 0 0", b"VIEWPOINT 0 0 0 0 0 0 1")]:
+            self.members["frames/000.pcd"] = original.replace(old, new)
+            with self.subTest(new=new):
+                self.fails(self.archive(), "PCD", "frames/000.pcd")
+        # Bytes chosen as big-endian 1.0 become an out-of-range little-endian value.
+        self.members["frames/000.pcd"] = original[:-24] + struct.pack(">ffffff", 123.456, 2, 3, 1, 2, 3)
+        self.fails(self.archive(), "PCD")
+
+    def test_pcd_nan_inf_coordinates_and_payload_size(self):
+        for point in [(math.nan, 0, 0), (math.inf, 0, 0), (251, 0, 0)]:
+            self.members["frames/000.pcd"] = point_bytes([point, (0, 0, 0)])
+            with self.subTest(point=point):
+                self.fails(self.archive(), "PCD")
+        for suffix in [b"x", b"\x00" * 12]:
+            self.members["frames/000.pcd"] = point_bytes([(0, 0, 0), (0, 0, 0)]) + suffix
+            self.fails(self.archive(), "PCD")
+
+    def test_pcd_header_ceiling_and_duplicate_order(self):
+        original = self.members["frames/000.pcd"]
+        for b in [b"#" + b"a" * 16384 + b"\n" + original, original.replace(b"FIELDS x y z\n", b"VERSION 0.7\n")]:
+            self.members["frames/000.pcd"] = b
+            self.fails(self.archive(), "PCD")
+
+    def test_pcd_manifest_count_and_float32_edge(self):
+        self.manifest["frames"][0]["pointCount"] = 1
+        self.fails(self.archive(), "PCD")
+        self.manifest["frames"][0]["pointCount"] = 2
+        self.members["frames/000.pcd"] = point_bytes([(250, -250, 0.1), (-0.2, 0, 0)])
+        r = validator.validate_bundle(self.archive())
+        self.assertLess(abs(r["frames"][0]["localBounds"][1][2] - 0.1), 1e-3)
+
+    def test_label_frame_set_timestamp_and_global_reference(self):
+        for change in [lambda l: l["openlabel"]["frames"].update(extra={}), lambda l: l["openlabel"]["frames"]["0"]["frame_properties"].update(timestamp=1), lambda l: l["openlabel"].update(objects={})]:
+            saved = copy.deepcopy(self.labels); change(self.labels)
+            with self.subTest(labels=self.labels):
+                self.fails(self.archive(), member="labels.openlabel.json")
+            self.labels = saved
+
+    def test_label_limits(self):
+        o = self.labels["openlabel"]["frames"]["0"]["objects"]["track-A"]
+        self.labels["openlabel"]["objects"] = {str(i): {"type": "car"} for i in range(101)}
+        self.labels["openlabel"]["frames"]["0"]["objects"] = {str(i): copy.deepcopy(o) for i in range(101)}
+        self.fails(self.archive(), member="labels.openlabel.json")
+
+    def test_pitched_unnormalized_box_dimensions_and_centers(self):
+        original = self.val().copy()
+        for values in [[*original[:3], 0.2, 0, 0, 0.98, *original[7:]], [*original[:3], 0, 0, 0, 2, *original[7:]], [251, *original[1:]], [*original[:7], 0.04, 2, 2], [*original[:7], 51, 2, 2]]:
+            self.val()[:] = values
+            with self.subTest(values=values):
+                self.fails(self.archive(), member="labels.openlabel.json")
+
+    def test_unknown_metadata_nonfinite_and_geometry_preservation(self):
+        before = copy.deepcopy(self.labels)
+        validator.validate_bundle(self.archive())
+        self.assertEqual(self.labels, before)
+        self.labels["openlabel"]["metadata"]["bad"] = math.inf
+        self.fails(self.archive(), member="labels.openlabel.json")
+
+    def test_cli_valid_invalid_external_reference_and_no_writes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            d = Path(directory); bundle = d / "clip.lrx.zip"; ref = d / "world.json"
+            bundle.write_bytes(self.archive()); ref.write_bytes(self.reference())
+            before = {p.name: p.read_bytes() for p in d.iterdir()}
+            command = [sys.executable, "-I", "-B", str(HERE / "validate.py"), str(bundle), "--expected", str(ref)]
+            p = subprocess.run(command, capture_output=True, timeout=15)
+            self.assertEqual(p.returncode, 0, p.stderr)
+            receipt = json.loads(p.stdout); self.assertTrue(receipt["expectedWorldBoxesChecked"])
+            self.assertNotIn("worldBoxes", receipt)
+            self.assertEqual({p.name: p.read_bytes() for p in d.iterdir()}, before)
+            bundle.write_bytes(b"not ZIP")
+            p = subprocess.run(command, capture_output=True, timeout=15)
+            self.assertEqual(p.returncode, 1); self.assertEqual(p.stdout, b"")
+            self.assertFalse(json.loads(p.stderr)["valid"])
+
+    def test_cli_missing_path_and_nonbytes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "absent.zip"
+            p = subprocess.run([sys.executable, "-I", "-B", str(HERE / "validate.py"), str(path)], capture_output=True, timeout=15)
+            self.assertEqual(p.returncode, 1)
+            self.assertEqual(json.loads(p.stderr)["code"], "IO")
+            with self.assertRaises(validator.ValidationError):
+                validator.validate_bundle(bytearray(self.archive()))
+
+
+def main():
+    global SUPPLIED_FIXTURE
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--receipt", required=True)
+    parser.add_argument("--fixture", required=True)
+    args = parser.parse_args(); SUPPLIED_FIXTURE = args.fixture
+    suite = unittest.defaultTestLoader.loadTestsFromTestCase(ValidatorTests)
+    names = [t.id().split(".")[-1] for t in suite]
+    result = unittest.TextTestRunner(verbosity=2).run(suite)
+    receipt = {"schema": "labelxr-python-validator-tests/v1", "passed": result.wasSuccessful() and not result.skipped and result.testsRun == len(names), "count": result.testsRun, "tests": names, "failed": len(result.failures), "errors": len(result.errors), "skipped": len(result.skipped), "pythonVersion": sys.version.split()[0], "validatorSha256": hashlib.sha256((HERE / "validate.py").read_bytes()).hexdigest(), "testSha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(), "fixtureSha256": hashlib.sha256(Path(SUPPLIED_FIXTURE).read_bytes()).hexdigest()}
+    with open(args.receipt, "x", encoding="utf-8", newline="\n") as stream:
+        json.dump(receipt, stream, sort_keys=True); stream.write("\n")
+    print(json.dumps(receipt, sort_keys=True))
+    return 0 if receipt["passed"] else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
