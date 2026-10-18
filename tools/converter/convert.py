@@ -2,9 +2,12 @@
 
 Inputs must explicitly declare metres, registered common world coordinates and
 little-endian binary data. Only upright bbox cuboids and XYZ float32 PCD layouts
-are supported. No frame registration, sampling, rights inference or pickle use.
+are supported. The restricted PandaSet reader decodes reviewed protocol-3 table
+records without executing targets. No registration, sampling or rights inference.
 """
 import argparse
+import pickletools
+import zlib
 import copy
 import hashlib
 import importlib.util
@@ -265,6 +268,313 @@ def convert_generic(*, pcd_dir, labels, mapping, license_file, attribution, outp
             "sourceSha256": source_digest, "frameCount": proof["frameCount"], "pointCount": proof["pointCount"],
             "boxCount": proof["boxCount"], "sourceWorldBoxesChecked": proof["expectedWorldBoxesChecked"],
             "pointWorldToleranceMetres": POINT_TOLERANCE, "rights": proof["rights"]}
+
+
+# LABELXR-PANDASET-RESTRICTED-READER-v1
+# These are inert records. Serialized symbols are never imported, resolved,
+# instantiated or called. Only the reviewed protocol-3 legacy layout is read.
+class _PandaRecord:
+    __slots__ = ('kind', 'value', 'state')
+
+    def __init__(self, kind, value=None):
+        self.kind, self.value, self.state = kind, value, None
+
+
+_PANDA_SYMBOLS = frozenset((
+    'pandas.core.frame DataFrame', 'pandas.core.internals.managers BlockManager',
+    'pandas.core.indexes.base _new_Index', 'pandas.core.indexes.base Index',
+    'pandas.core.indexes.range RangeIndex', 'numpy.core.multiarray _reconstruct',
+    'numpy ndarray', 'numpy dtype', 'builtins slice'))
+
+
+def _panda_check(ok, detail):
+    require(ok, 'pandaset', 'restricted-layout', detail)
+
+
+def _panda_symbol(value, name):
+    return type(value) is _PandaRecord and value.kind == 'symbol' and value.value == name
+
+
+def _panda_reduce(symbol, args):
+    _panda_check(type(symbol) is _PandaRecord and symbol.kind == 'symbol' and
+                 type(args) is tuple, 'Unexpected inert reduction declaration.')
+    name = symbol.value
+    if name == 'numpy.core.multiarray _reconstruct':
+        _panda_check(len(args) == 3 and _panda_symbol(args[0], 'numpy ndarray') and
+                     args[1] == (0,) and args[2] == b'b', 'Unsupported ndarray declaration.')
+        return _PandaRecord('array')
+    if name == 'numpy dtype':
+        _panda_check(len(args) == 3 and args[0] in ('f8', 'i8', 'b1', 'O8') and
+                     type(args[0]) is str and type(args[1]) is int and args[1] == 0 and
+                     type(args[2]) is int and args[2] == 1, 'Unsupported dtype declaration.')
+        return _PandaRecord('dtype', args[0])
+    if name == 'pandas.core.indexes.base _new_Index':
+        _panda_check(len(args) == 2 and type(args[1]) is dict, 'Unsupported index declaration.')
+        if _panda_symbol(args[0], 'pandas.core.indexes.base Index'):
+            return _PandaRecord('index', args[1])
+        _panda_check(_panda_symbol(args[0], 'pandas.core.indexes.range RangeIndex'),
+                     'Unsupported index symbol.')
+        return _PandaRecord('range', args[1])
+    if name == 'builtins slice':
+        _panda_check(len(args) == 3 and all(type(v) is int and 0 <= v <= 1024 for v in args)
+                     and args[2] > 0, 'Unsupported block slice declaration.')
+        return _PandaRecord('slice', args)
+    _panda_check(False, 'Serialized call target is unsupported; nothing was executed.')
+
+
+def _panda_graph(value):
+    active, complete = set(), set()
+
+    def visit(v, depth):
+        _panda_check(depth <= 32, 'Serialized graph exceeds the nesting limit.')
+        if type(v) in (type(None), bool, int, float, str, bytes):
+            return
+        identity = id(v)
+        _panda_check(identity not in active, 'Cyclic serialized graphs are unsupported.')
+        if identity in complete:
+            return
+        active.add(identity)
+        if type(v) is _PandaRecord:
+            visit(v.value, depth + 1); visit(v.state, depth + 1)
+        elif type(v) in (tuple, list):
+            _panda_check(len(v) <= 4096, 'Serialized container exceeds the item limit.')
+            for child in v:
+                visit(child, depth + 1)
+        else:
+            _panda_check(type(v) is dict and len(v) <= 4096, 'Unexpected serialized container.')
+            for key, child in v.items():
+                _panda_check(type(key) is str and len(key) <= 4096, 'Unexpected serialized key.')
+                visit(child, depth + 1)
+        active.remove(identity); complete.add(identity)
+    visit(value, 0)
+
+
+def _panda_stream(raw):
+    allowed = frozenset(('PROTO GLOBAL BINPUT LONG_BINPUT EMPTY_TUPLE NEWOBJ EMPTY_DICT MARK '
+        'BINUNICODE EMPTY_LIST BININT1 BININT2 TUPLE1 SHORT_BINBYTES TUPLE3 REDUCE NONE BININT '
+        'TUPLE BUILD NEWFALSE NEWTRUE APPENDS SETITEMS TUPLE2 BINGET LONG_BINGET BINBYTES '
+        'APPEND SETITEM STOP BINFLOAT').split())
+    stack, memo, marker, count = [], {}, object(), 0
+
+    def pop():
+        _panda_check(bool(stack) and stack[-1] is not marker, 'Serialized stack underflow.')
+        return stack.pop()
+
+    def marked():
+        values = []
+        while stack and stack[-1] is not marker:
+            values.append(stack.pop())
+        _panda_check(bool(stack), 'Serialized mark is missing.')
+        stack.pop(); values.reverse()
+        return values
+
+    def set_pairs(target, values):
+        _panda_check(type(target) is dict and len(values) % 2 == 0,
+                     'Unexpected serialized dictionary operation.')
+        for i in range(0, len(values), 2):
+            key = values[i]
+            _panda_check(type(key) is str and len(key) <= 4096 and key not in target,
+                         'Repeated or unsupported serialized dictionary key.')
+            target[key] = values[i + 1]
+        _panda_check(len(target) <= 4096, 'Serialized dictionary is too large.')
+
+    try:
+        for opcode, argument, offset in pickletools.genops(raw):
+            name = opcode.name; count += 1
+            _panda_check(count <= 100000 and name in allowed and len(stack) <= 4096,
+                         'Unsupported opcode or serialized resource limit.')
+            if count == 1:
+                _panda_check(name == 'PROTO' and argument == 3 and offset == 0,
+                             'Only the reviewed protocol-3 layout is supported.')
+                continue
+            _panda_check(name != 'PROTO', 'Repeated protocol declaration.')
+            if name == 'STOP':
+                _panda_check(offset == len(raw) - 1 and len(stack) == 1,
+                             'Trailing bytes or unresolved serialized stack.')
+                _panda_graph(stack[0]); return stack[0]
+            if name == 'MARK': stack.append(marker)
+            elif name == 'GLOBAL':
+                _panda_check(argument in _PANDA_SYMBOLS, 'Unsupported serialized symbol; no target was resolved.')
+                stack.append(_PandaRecord('symbol', argument))
+            elif name in ('BINPUT', 'LONG_BINPUT'):
+                _panda_check(stack and stack[-1] is not marker and type(argument) is int and
+                             0 <= argument < 4096 and argument not in memo, 'Invalid or repeated memo slot.')
+                memo[argument] = stack[-1]
+            elif name in ('BINGET', 'LONG_BINGET'):
+                _panda_check(argument in memo, 'Serialized memo reference is missing.')
+                stack.append(memo[argument])
+            elif name == 'EMPTY_TUPLE': stack.append(())
+            elif name == 'EMPTY_DICT': stack.append({})
+            elif name == 'EMPTY_LIST': stack.append([])
+            elif name in ('BINUNICODE', 'BININT1', 'BININT2', 'BININT', 'BINBYTES', 'SHORT_BINBYTES', 'BINFLOAT'):
+                _panda_check(not isinstance(argument, str) or len(argument) <= 4096, 'Serialized text exceeds the limit.')
+                stack.append(argument)
+            elif name == 'NONE': stack.append(None)
+            elif name == 'NEWFALSE': stack.append(False)
+            elif name == 'NEWTRUE': stack.append(True)
+            elif name.startswith('TUPLE'):
+                if name == 'TUPLE': values = marked()
+                else:
+                    n = int(name[-1]); values = [pop() for _ in range(n)][::-1]
+                stack.append(tuple(values))
+            elif name == 'NEWOBJ':
+                args, symbol = pop(), pop()
+                _panda_check(type(args) is tuple and args == () and
+                             (_panda_symbol(symbol, 'pandas.core.frame DataFrame') or
+                              _panda_symbol(symbol, 'pandas.core.internals.managers BlockManager')),
+                             'Unsupported object declaration; no object was instantiated.')
+                stack.append(_PandaRecord('frame' if symbol.value.endswith('DataFrame') else 'manager'))
+            elif name == 'REDUCE':
+                args, symbol = pop(), pop(); stack.append(_panda_reduce(symbol, args))
+            elif name == 'BUILD':
+                state = pop()
+                _panda_check(stack and type(stack[-1]) is _PandaRecord and
+                             stack[-1].kind in ('array', 'dtype', 'frame', 'manager') and
+                             stack[-1].state is None, 'Unsupported or repeated state declaration.')
+                stack[-1].state = state
+            elif name in ('APPEND', 'APPENDS'):
+                values = [pop()] if name == 'APPEND' else marked()
+                _panda_check(stack and type(stack[-1]) is list and len(stack[-1]) + len(values) <= 4096,
+                             'Unexpected list operation or excessive container.')
+                stack[-1].extend(values)
+            elif name in ('SETITEM', 'SETITEMS'):
+                if name == 'SETITEM':
+                    value, key = pop(), pop(); values = [key, value]
+                else: values = marked()
+                _panda_check(bool(stack), 'Missing serialized dictionary.')
+                set_pairs(stack[-1], values)
+    except (IndexError, KeyError, TypeError, ValueError, OverflowError) as error:
+        if isinstance(error, ConversionError): raise
+        raise ConversionError('pandaset', 'restricted-layout', 'Malformed bounded protocol-3 stream.') from None
+    _panda_check(False, 'Complete serialized stop marker is missing.')
+
+
+def _panda_array(value):
+    _panda_check(type(value) is _PandaRecord and value.kind == 'array' and
+                 type(value.state) is tuple and len(value.state) == 5, 'Missing inert ndarray state.')
+    version, shape, dtype, fortran, payload = value.state
+    _panda_check(type(version) is int and version == 1 and type(shape) is tuple and
+                 1 <= len(shape) <= 2 and all(type(n) is int and 0 <= n <= 200000 for n in shape) and
+                 math.prod(shape) <= 1200000 and type(fortran) is bool and not fortran,
+                 'Unsupported ndarray shape, version or storage order.')
+    _panda_check(type(dtype) is _PandaRecord and dtype.kind == 'dtype' and dtype.value in ('f8', 'i8', 'b1', 'O8'),
+                 'Unsupported inert dtype state.')
+    code = dtype.value; order = '|' if code in ('b1', 'O8') else '<'
+    _panda_check(dtype.state == (3, order, None, None, None, -1, -1, 63 if code == 'O8' else 0),
+                 'Unsupported dtype byte order, fields or flags.')
+    size = math.prod(shape)
+    if code == 'O8':
+        _panda_check(type(payload) is list and len(payload) == size and size <= 4096 and
+                     all(type(v) in (str, int, float, bool, type(None)) for v in payload),
+                     'Unsupported object-array payload; only inert scalar cells are supported.')
+        _panda_check(all(type(v) is not str or len(v) <= 4096 for v in payload), 'Excessive object-array text.')
+    else:
+        _panda_check(type(payload) is bytes and len(payload) == size * (1 if code == 'b1' else 8),
+                     'Numeric ndarray byte length differs from its shape.')
+        if code == 'b1':
+            _panda_check(all(v in (0, 1) for v in payload), 'Invalid boolean payload byte.')
+    return shape, code, payload
+
+
+def _panda_values(value):
+    shape, code, payload = _panda_array(value)
+    if code == 'O8': return tuple(payload)
+    return struct.unpack('<' + str(math.prod(shape)) + {'f8':'d', 'i8':'q', 'b1':'?'}[code], payload)
+
+
+def _panda_index(value):
+    _panda_check(type(value) is _PandaRecord and value.kind == 'index' and type(value.value) is dict and
+                 set(value.value) == {'data', 'name'} and value.value['name'] is None,
+                 'Unsupported column index state.')
+    shape, code, _ = _panda_array(value.value['data'])
+    names = _panda_values(value.value['data'])
+    _panda_check(len(shape) == 1 and code == 'O8' and 1 <= len(names) <= 32 and
+                 all(type(n) is str and 0 < len(n) <= 128 for n in names) and len(set(names)) == len(names),
+                 'Expected unique bounded literal column names.')
+    return names
+
+
+def read_pandaset_table(data, kind):
+    """Decode the reviewed legacy PandaSet table; never invoke pickle targets.
+
+    Returns immutable column tuples, keeping all cells/columns and row order.
+    This reader does not convert coordinates, choose sensors, merge duplicate
+    labels, infer provenance, or pass application/browser acceptance gates.
+    """
+    _panda_check(type(data) is bytes and 0 < len(data) <= 8 * 1024 * 1024 and
+                 kind in ('points', 'cuboids'), 'Expected a bounded selected PandaSet member.')
+    try:
+        inflater = zlib.decompressobj(31)
+        raw = inflater.decompress(data, 16 * 1024 * 1024 + 1)
+        _panda_check(len(raw) <= 16 * 1024 * 1024 and inflater.eof and
+                     not inflater.unused_data and not inflater.unconsumed_tail,
+                     'Expected one complete gzip member within the inflated byte limit.')
+    except zlib.error:
+        raise ConversionError('pandaset', 'gzip', 'Malformed bounded gzip stream.') from None
+    root = _panda_stream(raw)
+    _panda_check(type(root) is _PandaRecord and root.kind == 'frame' and type(root.state) is dict and
+                 set(root.state) == {'_data', '_typ', '_metadata', 'attrs'} and root.state['_typ'] == 'dataframe'
+                 and root.state['_metadata'] == [] and root.state['attrs'] == {},
+                 'Unsupported frame metadata layout; nothing will be silently discarded.')
+    manager = root.state['_data']
+    _panda_check(type(manager) is _PandaRecord and manager.kind == 'manager' and
+                 type(manager.state) is tuple and len(manager.state) == 4, 'Unsupported legacy manager layout.')
+    axes, arrays, items, extra = manager.state
+    _panda_check(type(axes) is list and len(axes) == 2 and type(arrays) is list and type(items) is list and
+                 1 <= len(arrays) == len(items) <= 32 and type(extra) is dict and set(extra) == {'0.14.1'},
+                 'Legacy manager sections differ.')
+    names = _panda_index(axes[0]); index = axes[1]
+    _panda_check(type(index) is _PandaRecord and index.kind == 'range' and type(index.value) is dict and
+                 set(index.value) == {'name', 'start', 'stop', 'step'} and index.value['name'] in (None, 'index') and
+                 type(index.value['start']) is int and index.value['start'] == 0 and
+                 type(index.value['step']) is int and index.value['step'] == 1 and type(index.value['stop']) is int,
+                 'Expected a contiguous unfiltered source row index.')
+    rows = index.value['stop']
+    _panda_check((1 <= rows <= 200000) if kind == 'points' else (0 <= rows <= 100),
+                 'Source row count exceeds product limits; no rows will be removed.')
+    newer = extra['0.14.1']
+    _panda_check(type(newer) is dict and set(newer) == {'axes', 'blocks'} and newer['axes'] is axes and
+                 type(newer['blocks']) is list and len(newer['blocks']) == len(arrays),
+                 'Redundant manager declarations disagree.')
+    columns = {}; dtypes = {}
+    for array, labels, block in zip(arrays, items, newer['blocks']):
+        _panda_check(type(block) is dict and set(block) == {'values', 'mgr_locs'} and block['values'] is array,
+                     'Redundant block value declarations disagree.')
+        locations = block['mgr_locs']
+        if type(locations) is _PandaRecord and locations.kind == 'slice':
+            positions = tuple(range(*locations.value))
+        else:
+            shape, code, _ = _panda_array(locations)
+            _panda_check(len(shape) == 1 and code == 'i8', 'Unsupported block placement array.')
+            positions = _panda_values(locations)
+        _panda_check(1 <= len(positions) <= 32 and len(set(positions)) == len(positions) and
+                     all(type(p) is int and 0 <= p < len(names) for p in positions), 'Invalid block placement.')
+        block_names = _panda_index(labels)
+        _panda_check(block_names == tuple(names[p] for p in positions), 'Redundant block column declarations disagree.')
+        shape, code, _ = _panda_array(array)
+        _panda_check(shape == (len(positions), rows), 'Block dimensions disagree with row/column declarations.')
+        values = _panda_values(array)
+        for i, name in enumerate(block_names):
+            _panda_check(name not in columns, 'Column appears in multiple blocks.')
+            columns[name] = values[i * rows:(i + 1) * rows]; dtypes[name] = code
+    _panda_check(set(columns) == set(names), 'Source columns are missing from the blocks.')
+    if kind == 'points':
+        _panda_check(names == ('x', 'y', 'z', 'i', 't', 'd') and
+                     all(dtypes[n] == 'f8' for n in names[:-1]) and dtypes['d'] == 'i8',
+                     'Unsupported PandaSet point-column layout.')
+        _panda_check(all(math.isfinite(v) for n in names[:-1] for v in columns[n]) and
+                     all(v in (0, 1) for v in columns['d']), 'Nonfinite point cell or unsupported sensor identifier.')
+    else:
+        geometry = ('yaw', 'position.x', 'position.y', 'position.z', 'dimensions.x', 'dimensions.y', 'dimensions.z')
+        _panda_check({'uuid', 'label', *geometry} <= set(names), 'Required cuboid columns are missing.')
+        _panda_check(all(dtypes[n] == 'f8' and all(math.isfinite(v) for v in columns[n]) for n in geometry),
+                     'Cuboid geometry requires finite float64 source cells.')
+        _panda_check(all(validator.text(v, 128) for n in ('uuid', 'label') for v in columns[n]) and
+                     all(0.05 <= v <= 50 for n in geometry[-3:] for v in columns[n]),
+                     'Unsupported cuboid identifiers, labels or dimensions.')
+    return {'kind': kind, 'layout': 'pandaset-protocol3-legacy-blockmanager/v1', 'rowCount': rows,
+            'columnNames': names, 'columns': {n: columns[n] for n in names}, 'dtypes': dtypes,
+            'indexName': index.value['name'], 'targetsExecuted': False, 'dataframesConstructed': False}
 
 
 def main(argv=None):

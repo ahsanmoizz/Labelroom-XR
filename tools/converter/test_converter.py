@@ -4,6 +4,7 @@ import copy
 import hashlib
 import importlib.util
 import io
+import inspect
 import json
 import math
 from pathlib import Path
@@ -615,6 +616,189 @@ class ConversionTests(unittest.TestCase):
         self.assertFalse(json.loads(p.stderr)["converted"]); self.assertFalse(self.output.exists())
 
 
+class _PandaFixture:
+    def __init__(self, kind, value=None, state=None):
+        self.kind, self.value, self.state = kind, value, state
+
+
+def _panda_fixture_array(code, shape, cells):
+    import struct
+    dtype = _PandaFixture('dtype', code, (3, '|' if code in ('O8', 'b1') else '<', None, None, None, -1, -1, 63 if code == 'O8' else 0))
+    raw = list(cells) if code == 'O8' else struct.pack('<' + str(len(cells)) + {'f8':'d', 'i8':'q', 'b1':'?'}[code], *cells)
+    return _PandaFixture('array', state=(1, tuple(shape), dtype, False, raw))
+
+
+def _panda_fixture_table(kind='points', rows=3):
+    names = ['x', 'y', 'z', 'i', 't', 'd'] if kind == 'points' else [
+        'uuid','label','yaw','position.x','position.y','position.z','dimensions.x','dimensions.y','dimensions.z','stationary','unknown.column']
+    def index(values):
+        return _PandaFixture('index', {'data':_panda_fixture_array('O8', (len(values),), values), 'name':None})
+    axes = [index(names), _PandaFixture('range', {'name':None, 'start':0, 'stop':rows, 'step':1})]
+    if kind == 'points':
+        types = ['f8']*5 + ['i8']
+        columns = [[(i+1)*1.25*(-1 if r%2 else 1)+r/8 for r in range(rows)] for i in range(5)] + [[r%2 for r in range(rows)]]
+    else:
+        types = ['O8','O8'] + ['f8']*7 + ['b1','O8']
+        columns = [['same-id']*rows, ['Car']*rows] + [[0.25+i/8+r/16 for r in range(rows)] for i in range(7)] + [[r%2 == 0 for r in range(rows)], [float('nan') if r%2 == 0 else 'kept-α' for r in range(rows)]]
+    arrays, items, blocks = [], [], []
+    for code in dict.fromkeys(types):
+        positions = [i for i,t in enumerate(types) if t == code]
+        array = _panda_fixture_array(code, (len(positions), rows), [v for i in positions for v in columns[i]])
+        arrays.append(array);items.append(index([names[i] for i in positions]))
+        blocks.append({'values':array, 'mgr_locs':_panda_fixture_array('i8', (len(positions),), positions)})
+    manager = _PandaFixture('manager', state=(axes, arrays, items, {'0.14.1':{'axes':axes,'blocks':blocks}}))
+    frame = _PandaFixture('frame', state={'_data':manager,'_typ':'dataframe','_metadata':[],'attrs':{}})
+    return frame, dict(zip(names, columns))
+
+
+def _panda_fixture_bytes(value, compressed=True):
+    # Hand-assembled inert declarations; no pickle serializer or unpickler.
+    import gzip, struct
+    memo, symbols = {}, {}
+    def symbol(name):
+        if name not in symbols: symbols[name]=_PandaFixture('symbol',name)
+        return symbols[name]
+    def emit(v):
+        if v is None:return b'N'
+        if type(v) is bool:return b'\x88' if v else b'\x89'
+        if type(v) is int:return b'J'+struct.pack('<i',v)
+        if type(v) is float:return b'G'+struct.pack('>d',v)
+        if type(v) is str:
+            raw=v.encode('utf-8');return b'X'+struct.pack('<I',len(raw))+raw
+        if type(v) is bytes:return b'B'+struct.pack('<I',len(v))+v
+        if type(v) is tuple:return b'('+b''.join(emit(x) for x in v)+b't'
+        key=id(v)
+        if key in memo:return b'j'+struct.pack('<I',memo[key])
+        if type(v) is list:prefix=b']'
+        elif type(v) is dict:prefix=b'}'
+        elif v.kind == 'symbol':
+            module,name=v.value.split(' ');prefix=b'c'+module.encode()+b'\n'+name.encode()+b'\n'
+        elif v.kind in ('frame','manager'):
+            prefix=emit(symbol('pandas.core.frame DataFrame' if v.kind=='frame' else 'pandas.core.internals.managers BlockManager'))+b')\x81'
+        elif v.kind == 'array':prefix=emit(symbol('numpy.core.multiarray _reconstruct'))+emit((symbol('numpy ndarray'),(0,),b'b'))+b'R'
+        elif v.kind == 'dtype':prefix=emit(symbol('numpy dtype'))+emit((v.value,0,1))+b'R'
+        elif v.kind in ('index','range'):
+            prefix=emit(symbol('pandas.core.indexes.base _new_Index'))+emit((symbol('pandas.core.indexes.base Index' if v.kind=='index' else 'pandas.core.indexes.range RangeIndex'),v.value))+b'R'
+        elif v.kind == 'slice':prefix=emit(symbol('builtins slice'))+emit(v.value)+b'R'
+        else:raise AssertionError('Bad test fixture')
+        slot=len(memo);memo[key]=slot;prefix+=b'r'+struct.pack('<I',slot)
+        if type(v) is list:return prefix+b'('+b''.join(emit(x) for x in v)+b'e'
+        if type(v) is dict:return prefix+b'('+b''.join(emit(k)+emit(x) for k,x in v.items())+b'u'
+        return prefix+(emit(v.state)+b'b' if v.state is not None else b'')
+    raw=b'\x80\x03'+emit(value)+b'.'
+    return gzip.compress(raw,mtime=0) if compressed else raw
+
+
+class PandaSetReaderTests(unittest.TestCase):
+    def table(self, kind='points', rows=3, change=lambda r:None):
+        frame,expected=_panda_fixture_table(kind,rows);change(frame)
+        return converter.read_pandaset_table(_panda_fixture_bytes(frame),kind),expected
+
+    def refused(self, change, kind='points', rows=3):
+        with self.assertRaises(converter.ConversionError):self.table(kind,rows,change)
+
+    def test_pandaset_known_float64_and_sensor_values_keep_order_and_all_columns(self):
+        out,expected=self.table()
+        self.assertEqual(out['rowCount'],3);self.assertEqual(tuple(expected),out['columnNames'])
+        self.assertEqual(out['columns'],{k:tuple(v) for k,v in expected.items()})
+        self.assertFalse(out['targetsExecuted']);self.assertFalse(out['dataframesConstructed'])
+
+    def test_pandaset_unknown_columns_nan_boolean_unicode_and_duplicate_ids_are_preserved(self):
+        out,expected=self.table('cuboids')
+        self.assertEqual(out['columns']['uuid'],('same-id',)*3)
+        self.assertEqual(out['columns']['stationary'],(True,False,True))
+        self.assertTrue(math.isnan(out['columns']['unknown.column'][0]));self.assertEqual(out['columns']['unknown.column'][1],'kept-α')
+
+    def test_pandaset_slice_placements_keep_original_column_order(self):
+        def change(r):
+            blocks=r.state['_data'].state[3]['0.14.1']['blocks']
+            blocks[0]['mgr_locs']=_PandaFixture('slice',(0,5,1));blocks[1]['mgr_locs']=_PandaFixture('slice',(5,6,1))
+        out,expected=self.table(change=change);self.assertEqual(out['columns'],{k:tuple(v) for k,v in expected.items()})
+
+    def test_pandaset_empty_cuboids_are_supported_and_empty_points_rejected(self):
+        out,_=self.table('cuboids',0);self.assertEqual(out['rowCount'],0)
+        self.refused(lambda r:None,rows=0)
+
+    def test_pandaset_exact_point_limit_is_supported_without_sampling(self):
+        out,_=self.table(rows=200000);self.assertEqual(out['rowCount'],200000);self.assertEqual(len(out['columns']['d']),200000)
+
+    def test_pandaset_point_and_annotation_row_limits_fail_without_drops(self):
+        self.refused(lambda r:None,rows=200001);self.refused(lambda r:None,kind='cuboids',rows=101)
+
+    def test_pandaset_wrong_byte_order_dtype_flags_shape_and_fortran_fail(self):
+        def array(r):return r.state['_data'].state[1][0]
+        def endian(r):array(r).state[2].state=(3,'>',None,None,None,-1,-1,0)
+        def flags(r):array(r).state[2].state=(3,'<',None,None,None,-1,-1,1)
+        def shape(r):a=array(r);a.state=(1,(5,4),*a.state[2:])
+        def fortran(r):a=array(r);a.state=(*a.state[:3],True,a.state[4])
+        for fn in [endian,flags,shape,fortran]:self.refused(fn)
+
+    def test_pandaset_numeric_payload_length_nonfinite_and_sensor_drift_fail(self):
+        def short(r):a=r.state['_data'].state[1][0];a.state=(*a.state[:4],a.state[4][:-1])
+        def nan(r):
+            a=r.state['_data'].state[1][0];a.state=(*a.state[:4],struct.pack('<d',float('nan'))+a.state[4][8:])
+        def sensor(r):
+            a=r.state['_data'].state[1][1];a.state=(*a.state[:4],struct.pack('<q',2)+a.state[4][8:])
+        for fn in [short,nan,sensor]:self.refused(fn)
+
+    def test_pandaset_duplicate_columns_placements_and_missing_blocks_fail(self):
+        def duplicate(r):r.state['_data'].state[0][0].value['data'].state[4][1]='x'
+        def repeated(r):
+            p=r.state['_data'].state[3]['0.14.1']['blocks'][1]['mgr_locs'];p.state=(*p.state[:4],struct.pack('<q',0))
+        def missing(r):r.state['_data'].state[3]['0.14.1']['blocks'].pop()
+        for fn in [duplicate,repeated,missing]:self.refused(fn)
+
+    def test_pandaset_redundant_axes_values_and_block_labels_must_agree(self):
+        def axes(r):r.state['_data'].state[3]['0.14.1']['axes']=list(r.state['_data'].state[0])
+        def values(r):r.state['_data'].state[3]['0.14.1']['blocks'][0]['values']=copy.deepcopy(r.state['_data'].state[1][0])
+        def labels(r):r.state['_data'].state[2][0].value['data'].state[4][0]='wrong'
+        for fn in [axes,values,labels]:self.refused(fn)
+
+    def test_pandaset_unknown_frame_metadata_and_noncontiguous_indices_fail(self):
+        self.refused(lambda r:r.state['attrs'].update(extra='kept or rejected, never dropped'))
+        self.refused(lambda r:r.state['_data'].state[0][1].value.update(start=1))
+        self.refused(lambda r:r.state['_data'].state[0][1].value.update(step=2))
+
+    def test_pandaset_cuboid_geometry_size_and_identifiers_are_validated(self):
+        def size(r):
+            a=r.state['_data'].state[1][1];v=bytearray(a.state[4]);struct.pack_into('<d',v,4*3*8,100);a.state=(*a.state[:4],bytes(v))
+        def label(r):r.state['_data'].state[1][0].state[4][0]=''
+        self.refused(size,'cuboids');self.refused(label,'cuboids')
+
+    def test_pandaset_gzip_truncation_concatenation_bomb_and_trailing_pickle_fail(self):
+        import gzip
+        frame,_=_panda_fixture_table();data=_panda_fixture_bytes(frame);raw=_panda_fixture_bytes(frame,False)
+        for bad in [data[:-8],data+gzip.compress(b'extra'),gzip.compress(b'x'*(16*1024*1024+1)),gzip.compress(raw+b'extra'),gzip.compress(raw[:-1])]:
+            with self.assertRaises(converter.ConversionError):converter.read_pandaset_table(bad,'points')
+
+    def test_pandaset_unsupported_protocol_opcode_global_and_call_never_execute(self):
+        import gzip
+        for raw in [b'\x80\x04N.',b'\x80\x03N0.',b'\x80\x03cos\nsystem\nX\x07\0\0\0SECRET!\x85R.',b'\x80\x03cnumpy\nndarray\n)R.']:
+            with self.assertRaises(converter.ConversionError):converter.read_pandaset_table(gzip.compress(raw),'points')
+
+    def test_pandaset_missing_repeated_memo_malformed_stack_and_cycles_fail(self):
+        import gzip
+        for raw in [b'\x80\x03h\xff.',b'\x80\x03Nr\0\0\0\0r\0\0\0\0.',b'\x80\x03t.',b'\x80\x03]q\0h\0a.']:
+            with self.assertRaises(converter.ConversionError):converter.read_pandaset_table(gzip.compress(raw),'points')
+
+    def test_pandaset_container_text_stack_memo_and_op_count_budgets_fail(self):
+        import gzip
+        for raw in [b'\x80\x03X'+struct.pack('<I',4097)+b'x'*4097+b'.',b'\x80\x03'+b'N'*4098+b'.',b'\x80\x03N'+b'r'+struct.pack('<I',4096)+b'.']:
+            with self.assertRaises(converter.ConversionError):converter.read_pandaset_table(gzip.compress(raw),'points')
+
+    def test_pandaset_nonprimitive_object_payload_and_unknown_scalar_types_fail(self):
+        def change(r):r.state['_data'].state[1][0].state[4][0]=['unsupported']
+        self.refused(change,'cuboids')
+
+    def test_pandaset_reader_does_not_import_pickle_pandas_numpy_or_resolve_globals(self):
+        import ast
+        tree=ast.parse(inspect.getsource(converter));functions=[n for n in tree.body if isinstance(n,(ast.FunctionDef,ast.ClassDef)) and ('panda' in n.name.lower())]
+        for node in functions:
+            for n in ast.walk(node):
+                if isinstance(n,(ast.Import,ast.ImportFrom)):self.fail('Reader imports an input-directed dependency')
+                if isinstance(n,ast.Call) and isinstance(n.func,ast.Name):self.assertNotIn(n.func.id,{'eval','exec','getattr','__import__','compile'})
+
+
 def main():
     global SUPPLIED_FIXTURE
     parser = argparse.ArgumentParser()
@@ -622,10 +806,11 @@ def main():
     parser.add_argument("--fixture", required=True)
     args = parser.parse_args(); SUPPLIED_FIXTURE = args.fixture
     suite = unittest.TestSuite([*unittest.defaultTestLoader.loadTestsFromTestCase(ValidatorTests),
-                               *unittest.defaultTestLoader.loadTestsFromTestCase(ConversionTests)])
+                               *unittest.defaultTestLoader.loadTestsFromTestCase(ConversionTests),
+                               *unittest.defaultTestLoader.loadTestsFromTestCase(PandaSetReaderTests)])
     names = [t.id().split(".")[-1] for t in suite]
     result = unittest.TextTestRunner(verbosity=2).run(suite)
-    receipt = {"schema": "labelxr-python-generic-tests/v1", "passed": result.wasSuccessful() and not result.skipped and result.testsRun == len(names), "count": result.testsRun, "tests": names, "failed": len(result.failures), "errors": len(result.errors), "skipped": len(result.skipped), "pythonVersion": sys.version.split()[0], "validatorSha256": hashlib.sha256((HERE / "validate.py").read_bytes()).hexdigest(), "converterSha256": hashlib.sha256((HERE / "convert.py").read_bytes()).hexdigest(), "testSha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(), "fixtureSha256": hashlib.sha256(Path(SUPPLIED_FIXTURE).read_bytes()).hexdigest()}
+    receipt = {"schema": "labelxr-python-pandaset-reader-tests/v1", "passed": result.wasSuccessful() and not result.skipped and result.testsRun == len(names), "count": result.testsRun, "tests": names, "failed": len(result.failures), "errors": len(result.errors), "skipped": len(result.skipped), "pythonVersion": sys.version.split()[0], "validatorSha256": hashlib.sha256((HERE / "validate.py").read_bytes()).hexdigest(), "converterSha256": hashlib.sha256((HERE / "convert.py").read_bytes()).hexdigest(), "testSha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(), "fixtureSha256": hashlib.sha256(Path(SUPPLIED_FIXTURE).read_bytes()).hexdigest()}
     with open(args.receipt, "x", encoding="utf-8", newline="\n") as stream:
         json.dump(receipt, stream, sort_keys=True); stream.write("\n")
     print(json.dumps(receipt, sort_keys=True))
