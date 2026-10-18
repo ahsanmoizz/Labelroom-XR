@@ -799,6 +799,152 @@ class PandaSetReaderTests(unittest.TestCase):
                 if isinstance(n,ast.Call) and isinstance(n.func,ast.Name):self.assertNotIn(n.func.id,{'eval','exec','getattr','__import__','compile'})
 
 
+class PandaSetConversionTests(unittest.TestCase):
+    def setUp(self):
+        self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup);self.root=Path(self.temp.name)
+        self.seq=self.root/'sequence';(self.seq/'lidar').mkdir(parents=True);(self.seq/'annotations/cuboids').mkdir(parents=True)
+        self.attr=self.root/'attribution.txt';self.attr.write_bytes(b'Synthetic test attribution\n')
+        (self.seq/'LICENSE.txt').write_bytes(b'Synthetic test licence\r\n')
+        (self.seq/'lidar/timestamps.json').write_bytes(encoded([1.0,2.0,3.0]))
+        self.poses=[{'position':{'x':0.0,'y':0.0,'z':0.0},'heading':{'w':1.0,'x':0.0,'y':0.0,'z':0.0}} for _ in range(3)]
+        (self.seq/'lidar/poses.json').write_bytes(encoded(self.poses))
+        self.tables={};self.source={'name':'synthetic PandaSet fixture','kind':'synthetic-test','url':'',
+            'licence':'Synthetic only','attribution':'Synthetic test attribution'}
+        for i in range(3):
+            fid=f'{i:02}';p=b'points'+fid.encode();b=b'boxes'+fid.encode()
+            (self.seq/f'lidar/{fid}.pkl.gz').write_bytes(p);(self.seq/f'annotations/cuboids/{fid}.pkl.gz').write_bytes(b)
+            self.tables[p]={'rowCount':3,'columns':{'x':[9.,10.,11.],'y':[19.,20.,21.],'z':[2.,3.,4.],
+                'i':[1.,2.,3.],'t':[1.,1.,1.],'d':[0,1,0]}}
+            columns={'uuid':['track-A'],'label':['Car'],'yaw':[0.],'position.x':[10.],'position.y':[20.],
+                'position.z':[3.],'dimensions.x':[2.],'dimensions.y':[4.],'dimensions.z':[1.],
+                'unknown.attribute':[float('nan')]}
+            self.tables[b]={'rowCount':1,'columnNames':tuple(columns),'columns':columns,
+                'dtypes':{k:('O8' if k in ('uuid','label','unknown.attribute') else 'f8') for k in columns}}
+        self.output=self.root/'clip.lrx.zip'
+        patch=mock.patch.object(converter,'read_pandaset_table',side_effect=lambda b,k:copy.deepcopy(self.tables[b]))
+        patch.start();self.addCleanup(patch.stop)
+
+    def run_conversion(self, frames=None, output=None):
+        return converter.convert_pandaset(sequence_dir=self.seq,frame_ids=['00'] if frames is None else frames,
+            source=self.source,attribution=self.attr,output=self.output if output is None else output)
+
+    def members(self):
+        with zipfile.ZipFile(self.output) as z:return {n:z.read(n) for n in z.namelist()}
+
+    def refused(self, frames=None):
+        with self.assertRaises((converter.ConversionError,validator.ValidationError,OSError,ValueError,KeyError,TypeError)):
+            self.run_conversion(frames)
+        self.assertFalse(self.output.exists())
+
+    def test_panda_convert_known_geometry_yaw_and_swapped_dimensions(self):
+        r=self.run_conversion();self.assertEqual((r['pointCount'],r['boxCount']),(3,1))
+        ref={'schemaVersion':'labelxr-world-boxes/v1','boxes':[{'frameId':'00','objectId':'track-A','center':[10.,20.,3.],
+            'size':[4.,2.,1.],'yaw':math.pi/2}]}
+        self.assertEqual(validator.validate_bundle(self.output.read_bytes(),encoded(ref))['expectedWorldBoxesChecked'],1)
+        m=self.members();c=json.loads(m['labels.openlabel.json'])['openlabel']['frames']['00']['objects']['track-A']['object_data']['cuboid'][0]['val']
+        self.assertAlmostEqual(c[5],math.sin(math.pi/4));self.assertEqual(c[7:],[4.,2.,1.])
+
+    def test_panda_convert_fallback_origin_keeps_distant_point_and_all_frames(self):
+        self.tables[b'points01']['columns']['x']=[-133.,0.,273.]
+        r=self.run_conversion(['00','01']);self.assertEqual(r['originStrategy'],'common-clip-bounds-midpoint')
+        self.assertEqual(r['sourceOrigin'][0],70.);self.assertEqual(r['pointCount'],6);self.assertEqual(r['sourceRowsDropped'],0)
+        m=self.members();points=list(struct.iter_unpack('<fff',m['frames/001.pcd'].split(b'DATA binary\n',1)[1]))
+        self.assertEqual([p[0]+70 for p in points],[-133.,0.,273.])
+
+    def test_panda_convert_prefers_first_selected_pose_when_it_fits(self):
+        self.poses[1]['position']['x']=5.;(self.seq/'lidar/poses.json').write_bytes(encoded(self.poses))
+        r=self.run_conversion(['01']);self.assertEqual(r['sourceOrigin'],[5.,0.,0.]);self.assertEqual(r['originStrategy'],'first-selected-lidar-pose')
+
+    def test_panda_convert_rejects_bad_frame_selection(self):
+        for frames in [[],['00']*2,['01','00'],['../00'],['80'],['0'],tuple(['00']),[f'{i:02}' for i in range(11)]]:
+            with self.subTest(frames=frames):self.refused(frames)
+
+    def test_panda_convert_checks_timestamp_coverage_and_order(self):
+        for times in [[1.],[1.,1.,2.],[1.,float('nan'),3.]]:
+            (self.seq/'lidar/timestamps.json').write_bytes(encoded(times));self.refused(['00','01'])
+
+    def test_panda_convert_rejects_bad_pose_identity(self):
+        for value in [float('inf'),2.]:
+            self.poses[0]['heading']['w']=value;(self.seq/'lidar/poses.json').write_bytes(encoded(self.poses));self.refused()
+
+    def test_panda_convert_refuses_duplicate_uuid_without_deduplication(self):
+        b=self.tables[b'boxes00'];b['rowCount']=2
+        for k in b['columns']:b['columns'][k]*=2
+        self.refused()
+
+    def test_panda_convert_refuses_tracked_class_change(self):
+        self.tables[b'boxes01']['columns']['label']=['Pedestrian'];self.refused(['00','01'])
+
+    def test_panda_convert_preserves_all_annotation_cells_including_nan_bits(self):
+        self.run_conversion();v=json.loads(self.members()['labels.openlabel.json'])['openlabel']['frames']['00']['objects']['track-A']['pandaset']
+        self.assertEqual(v['columnOrder'],list(self.tables[b'boxes00']['columnNames']))
+        cell=v['original']['unknown.attribute']['cell'];self.assertEqual(cell,{'type':'float64-le','bits':struct.pack('<d',float('nan')).hex()})
+        self.assertEqual(v['original']['uuid']['cell'],{'type':'str','value':'track-A'})
+
+    def test_panda_convert_discloses_source_only_point_attributes_and_exact_digests(self):
+        self.run_conversion();v=json.loads(self.members()['labels.openlabel.json'])['openlabel']['metadata']['pandaset_conversion']
+        self.assertEqual(v['canonicalPointColumns'],['x','y','z']);self.assertEqual(v['sourcePointColumns'],['x','y','z','i','t','d'])
+        self.assertEqual(v['sourceOnlyPointAttributeSha256']['00']['d'],hashlib.sha256(struct.pack('<3q',0,1,0)).hexdigest())
+        self.assertIn('remain in unchanged raw source',v['pointAttributeDisclosure'])
+
+    def test_panda_convert_deterministic_output_names_and_no_private_path_leak(self):
+        self.run_conversion();other=self.root/'other.zip';self.run_conversion(output=other)
+        self.assertEqual(self.output.read_bytes(),other.read_bytes());self.assertNotIn(str(self.root).encode(),self.output.read_bytes())
+
+    def test_panda_convert_input_change_before_publish_leaves_no_output(self):
+        original=converter.read;seen=0
+        def changed(path,limit,member):
+            nonlocal seen
+            data=original(path,limit,member)
+            if member=='lidar/00.pkl.gz':
+                seen+=1
+                if seen==2:return data+b'x'
+            return data
+        with mock.patch.object(converter,'read',changed):self.refused()
+
+    def test_panda_convert_licence_bytes_retained_and_invalid_rights_refused(self):
+        p=self.seq/'LICENSE.txt';original=p.read_bytes();self.run_conversion();self.assertEqual(self.members()['LICENSE.txt'],original);self.output.unlink()
+        for data in [b'',b' ',b'\xff',b'rights\x00']:p.write_bytes(data);self.refused()
+
+    def test_panda_convert_attribution_required(self):
+        self.attr.write_bytes(b'');self.refused()
+
+    def test_panda_convert_existing_output_is_never_overwritten(self):
+        self.output.write_bytes(b'existing')
+        with self.assertRaises(converter.ConversionError):self.run_conversion()
+        self.assertEqual(self.output.read_bytes(),b'existing')
+
+    def test_panda_convert_atomic_publication_race_keeps_other_writer(self):
+        link=converter.os.link
+        def raced(a,b):Path(b).write_bytes(b'racer');return link(a,b)
+        with mock.patch.object(converter.os,'link',raced),self.assertRaises(FileExistsError):self.run_conversion()
+        self.assertEqual(self.output.read_bytes(),b'racer');self.assertFalse(list(self.root.glob('.labelxr-owned-*')))
+
+    def test_panda_convert_span_exceeding_product_bounds_is_refused(self):
+        self.tables[b'points00']['columns']['x']=[-251.,0.,251.];self.refused()
+
+    def test_panda_convert_cli_success_and_bounded_failure(self):
+        source=self.root/'source.json';source.write_bytes(encoded(self.source))
+        args=['--sequence-dir',str(self.seq),'--frames','00','--source',str(source),'--attribution',str(self.attr),'--out',str(self.output)]
+        out=io.StringIO()
+        with mock.patch.object(sys,'stdout',out):self.assertEqual(converter.pandaset_main(args),0)
+        self.assertTrue(json.loads(out.getvalue())['converted'])
+        out=io.StringIO()
+        with mock.patch.object(sys,'stderr',out):self.assertEqual(converter.pandaset_main(args),1)
+        self.assertFalse(json.loads(out.getvalue())['converted']);self.assertNotIn(str(self.seq),out.getvalue())
+
+    def test_panda_convert_large_world_coordinates_reconstruct_within_one_millimetre(self):
+        self.poses[0]['position']['x']=1e7;(self.seq/'lidar/poses.json').write_bytes(encoded(self.poses))
+        self.tables[b'points00']['columns']['x']=[1e7+.123456,1e7+2.123456,1e7+3.123456]
+        self.tables[b'boxes00']['columns']['position.x']=[1e7+1.]
+        r=self.run_conversion();self.assertEqual(r['sourceOrigin'][0],1e7)
+        points=list(struct.iter_unpack('<fff',self.members()['frames/000.pcd'].split(b'DATA binary\n',1)[1]))
+        for p,q in zip(points,self.tables[b'points00']['columns']['x']):self.assertLessEqual(abs(p[0]+1e7-q),.001)
+
+    def test_panda_convert_unsupported_raw_annotation_cell_fails_instead_of_dropping(self):
+        self.tables[b'boxes00']['columns']['unknown.attribute']=[['unsupported']];self.refused()
+
+
 def main():
     global SUPPLIED_FIXTURE
     parser = argparse.ArgumentParser()
@@ -807,10 +953,11 @@ def main():
     args = parser.parse_args(); SUPPLIED_FIXTURE = args.fixture
     suite = unittest.TestSuite([*unittest.defaultTestLoader.loadTestsFromTestCase(ValidatorTests),
                                *unittest.defaultTestLoader.loadTestsFromTestCase(ConversionTests),
-                               *unittest.defaultTestLoader.loadTestsFromTestCase(PandaSetReaderTests)])
+                               *unittest.defaultTestLoader.loadTestsFromTestCase(PandaSetReaderTests),
+                               *unittest.defaultTestLoader.loadTestsFromTestCase(PandaSetConversionTests)])
     names = [t.id().split(".")[-1] for t in suite]
     result = unittest.TextTestRunner(verbosity=2).run(suite)
-    receipt = {"schema": "labelxr-python-pandaset-reader-tests/v1", "passed": result.wasSuccessful() and not result.skipped and result.testsRun == len(names), "count": result.testsRun, "tests": names, "failed": len(result.failures), "errors": len(result.errors), "skipped": len(result.skipped), "pythonVersion": sys.version.split()[0], "validatorSha256": hashlib.sha256((HERE / "validate.py").read_bytes()).hexdigest(), "converterSha256": hashlib.sha256((HERE / "convert.py").read_bytes()).hexdigest(), "testSha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(), "fixtureSha256": hashlib.sha256(Path(SUPPLIED_FIXTURE).read_bytes()).hexdigest()}
+    receipt = {"schema": "labelxr-python-pandaset-conversion-tests/v1", "passed": result.wasSuccessful() and not result.skipped and result.testsRun == len(names), "count": result.testsRun, "tests": names, "failed": len(result.failures), "errors": len(result.errors), "skipped": len(result.skipped), "pythonVersion": sys.version.split()[0], "validatorSha256": hashlib.sha256((HERE / "validate.py").read_bytes()).hexdigest(), "converterSha256": hashlib.sha256((HERE / "convert.py").read_bytes()).hexdigest(), "testSha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(), "fixtureSha256": hashlib.sha256(Path(SUPPLIED_FIXTURE).read_bytes()).hexdigest()}
     with open(args.receipt, "x", encoding="utf-8", newline="\n") as stream:
         json.dump(receipt, stream, sort_keys=True); stream.write("\n")
     print(json.dumps(receipt, sort_keys=True))

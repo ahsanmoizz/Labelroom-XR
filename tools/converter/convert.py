@@ -577,6 +577,159 @@ def read_pandaset_table(data, kind):
             'indexName': index.value['name'], 'targetsExecuted': False, 'dataframesConstructed': False}
 
 
+# LABELXR-PANDASET-CONVERTER-v1
+def _pandaset_cell(value):
+    """Lossless scalar metadata; preserve nonfinite raw attributes as IEEE bits."""
+    if type(value) is float:
+        return {'type': 'float64-le', 'bits': struct.pack('<d', value).hex()}
+    require(type(value) in (str, bool, int, type(None)), 'pandaset', 'metadata',
+            'Unsupported raw annotation scalar; nothing will be discarded.')
+    return {'type': {str: 'str', bool: 'bool', int: 'int', type(None): 'none'}[type(value)], 'value': value}
+
+
+def _pandaset_origin(raw, frame_ids, poses):
+    low, high = [math.inf] * 3, [-math.inf] * 3
+    for fid in frame_ids:
+        for kind, name, columns in [('points', f'lidar/{fid}.pkl.gz', ('x', 'y', 'z')),
+                ('cuboids', f'annotations/cuboids/{fid}.pkl.gz', ('position.x', 'position.y', 'position.z'))]:
+            table = read_pandaset_table(raw[name], kind)
+            for axis, column in enumerate(columns):
+                for value in table['columns'][column]:
+                    low[axis] = min(low[axis], value); high[axis] = max(high[axis], value)
+    first_pose = poses[int(frame_ids[0])]
+    validator.obj(first_pose, 'poses.json', 'pose', ('position', 'heading'), strict=True)
+    for key, names in [('position', ('x', 'y', 'z')), ('heading', ('w', 'x', 'y', 'z'))]:
+        validator.obj(first_pose[key], 'poses.json', key, names, strict=True)
+        require(all(validator.finite(first_pose[key][n]) for n in names), 'poses.json', key, 'Nonfinite pose.')
+    require(abs(math.hypot(*first_pose['heading'].values()) - 1) <= 1e-4,
+            'poses.json', 'heading', 'Expected a normalized pose quaternion; it is not applied to world points.')
+    origin = [first_pose['position'][a] for a in ('x', 'y', 'z')]
+    fits = lambda o: all(math.isfinite(v) and max(abs(l-v), abs(h-v)) <= 250 for l,h,v in zip(low,high,o))
+    strategy = 'first-selected-lidar-pose'
+    if not fits(origin):
+        origin = [l / 2 + h / 2 for l,h in zip(low,high)]
+        strategy = 'common-clip-bounds-midpoint'
+    require(fits(origin), 'pandaset', 'sourceOrigin',
+            'The complete selected clip cannot fit the unchanged 250 metre bounds; no rows or frames removed.')
+    return origin, {'strategy': strategy, 'firstSelectedPosePosition': [first_pose['position'][a] for a in ('x','y','z')],
+                    'worldMinimum': low, 'worldMaximum': high, 'coordinatesRotated': False, 'boundMetres': 250}
+
+
+def _pandaset_points(table, origin):
+    count = table['rowCount']; columns = table['columns']
+    out = bytearray(('VERSION 0.7\nFIELDS x y z\nSIZE 4 4 4\nTYPE F F F\nCOUNT 1 1 1\n'
+                     f'WIDTH {count}\nHEIGHT 1\nVIEWPOINT 0 0 0 1 0 0 0\nPOINTS {count}\nDATA binary\n').encode())
+    for i in range(count):
+        world = [columns[a][i] for a in ('x', 'y', 'z')]
+        local = [v-o for v,o in zip(world,origin)]
+        require(all(math.isfinite(v) and abs(v) <= 250 for v in local), 'pandaset', 'point', 'Point exceeds origin bounds.')
+        packed = struct.pack('<fff', *local)
+        require(all(abs(v-(q+o)) <= POINT_TOLERANCE for v,q,o in zip(world,struct.unpack('<fff',packed),origin)),
+                'pandaset', 'point', 'Float32 world reconstruction exceeds 1 mm.')
+        out.extend(packed)
+    # The canonical product format contains XYZ only. Non-XYZ source attributes
+    # remain in the unchanged raw input; their exact column digests are disclosed.
+    auxiliary = {n: digest(struct.pack('<' + str(count) + ('q' if n=='d' else 'd'), *columns[n]))
+                 for n in ('i', 't', 'd')}
+    return bytes(out), auxiliary
+
+
+def convert_pandaset(*, sequence_dir, frame_ids, source, attribution, output):
+    """Convert every requested row using the restricted inert table reader."""
+    sequence_dir = directory(sequence_dir)
+    require(type(frame_ids) is list and 1 <= len(frame_ids) <= 10 and
+            all(type(f) is str and re.fullmatch(r'[0-7][0-9]', f) for f in frame_ids) and
+            frame_ids == sorted(set(frame_ids)), 'pandaset', 'frames', 'Expected 1..10 unique increasing frame IDs, 00..79.')
+    source = copy.deepcopy(source)
+    validator.obj(source, 'pandaset-source.json', 'source', ('name', 'kind', 'url', 'licence', 'attribution'), strict=True)
+    require(source['kind'] in ('real', 'synthetic-test'), 'pandaset-source.json', 'kind', 'Declare real or synthetic-test provenance.')
+    relative = ['LICENSE.txt', 'lidar/poses.json', 'lidar/timestamps.json']
+    relative += [n for f in frame_ids for n in (f'lidar/{f}.pkl.gz', f'annotations/cuboids/{f}.pkl.gz')]
+    limits = {n: (8*1024*1024 if n.endswith('.pkl.gz') else 65536) for n in relative}
+    raw = {n: read(sequence_dir / n, limits[n], n) for n in relative}
+    require(sum(map(len,raw.values())) <= SOURCE_TOTAL_LIMIT, 'pandaset', 'bytes', 'Combined input byte limit exceeded.')
+    attr = read(Path(attribution), 65536, 'ATTRIBUTION.txt')
+    poses = validator.bounded_json(raw['lidar/poses.json'], 'poses.json', 65536, 8)
+    times = validator.bounded_json(raw['lidar/timestamps.json'], 'timestamps.json', 65536, 8)
+    require(type(poses) is list and type(times) is list and len(poses)==len(times) and
+            1 <= len(times) <= 80 and int(frame_ids[-1]) < len(times), 'pandaset', 'metadata', 'Pose/timestamp coverage differs.')
+    selected_times = [times[int(f)] for f in frame_ids]
+    require(all(validator.finite(t) for t in selected_times) and all(a<b for a,b in zip(selected_times,selected_times[1:])),
+            'timestamps.json', 'timestamp', 'Selected timestamps must be finite and strictly increasing.')
+    origin, origin_decision = _pandaset_origin(raw, frame_ids, poses)
+    inventory = {'schemaVersion': 'labelxr-pandaset-input/v1', 'frames': frame_ids,
+                 'hashes': {n: digest(b) for n,b in raw.items()}, 'attributionSha256': digest(attr), 'source': source}
+    source_digest = digest(encoded(inventory))
+    members = {'LICENSE.txt': raw['LICENSE.txt'], 'ATTRIBUTION.txt': attr}
+    globals, frames, label_frames, expected, auxiliary = {}, [], {}, [], {}
+    for i, (fid, timestamp) in enumerate(zip(frame_ids,selected_times)):
+        points = read_pandaset_table(raw[f'lidar/{fid}.pkl.gz'], 'points')
+        boxes = read_pandaset_table(raw[f'annotations/cuboids/{fid}.pkl.gz'], 'cuboids')
+        name = f'frames/{i:03}.pcd'; members[name], auxiliary[fid] = _pandaset_points(points, origin)
+        frames.append({'id': fid, 'timestamp': timestamp, 'pcd': name, 'pointCount': points['rowCount'], 'sha256': digest(members[name])})
+        objects = {}; columns = boxes['columns']
+        for row in range(boxes['rowCount']):
+            oid, label = columns['uuid'][row], columns['label'][row]
+            require(oid not in objects, 'pandaset', 'uuid', 'Repeated UUID within one frame is ambiguous; no deduplication performed.')
+            require(oid not in globals or globals[oid]['type']==label, 'pandaset', 'label', 'A tracked UUID changes class.')
+            globals[oid] = {'type': label}
+            require(len(globals) <= 1000, 'pandaset', 'objects', 'More than 1000 global objects.')
+            center = [columns[n][row] for n in ('position.x', 'position.y', 'position.z')]
+            # Upstream: yaw=0 points along +Y (length); canonical box +X is
+            # length. Swap width/length axes and add pi/2 without moving corners.
+            yaw = columns['yaw'][row] + math.pi/2
+            yaw = math.atan2(math.sin(yaw), math.cos(yaw))
+            size = [columns[n][row] for n in ('dimensions.y', 'dimensions.x', 'dimensions.z')]
+            val = [v-o for v,o in zip(center,origin)] + [0,0,math.sin(yaw/2),math.cos(yaw/2)] + size
+            original = {n: {'dtype': boxes['dtypes'][n], 'cell': _pandaset_cell(columns[n][row])} for n in boxes['columnNames']}
+            objects[oid] = {'object_data': {'cuboid': [{'name': 'bbox', 'val': val}]},
+                            'pandaset': {'sourceRow': row, 'columnOrder': list(boxes['columnNames']), 'original': original}}
+            expected.append({'frameId': fid, 'objectId': oid, 'center': center, 'size': size, 'yaw': yaw})
+        label_frames[fid] = {'frame_properties': {'timestamp': timestamp}, 'objects': objects}
+    metadata = {'schema_version': '1.0.0', 'pandaset_conversion': {'schemaVersion': 'labelxr-pandaset-conversion/v1',
+        'inputInventory': inventory, 'originDecision': origin_decision, 'sourcePointColumns': ['x','y','z','i','t','d'],
+        'canonicalPointColumns': ['x','y','z'], 'sourceOnlyPointAttributeSha256': auxiliary,
+        'pointAttributeDisclosure': 'Canonical PCD preserves all XYZ rows within 1 mm; i/t/d values remain in unchanged raw source files, identified by exact column SHA-256.',
+        'annotationMapping': 'canonical size=(dimensions.y,dimensions.x,dimensions.z); canonical yaw=source yaw+pi/2',
+        'targetsExecuted': False, 'sourceRowsDropped': 0}}
+    members['labels.openlabel.json'] = encoded({'openlabel': {'metadata': metadata, 'objects': globals, 'frames': label_frames}})
+    manifest = {'schemaVersion': '1.0', 'bundleId': str(uuid.uuid5(uuid.NAMESPACE_URL, 'labelxr-pandaset-sha256:'+source_digest)),
+                'source': {**source, 'sha256': source_digest}, 'sourceOrigin': origin,
+                'units': 'meters', 'coordinates': 'x-y-ground-z-up', 'frames': frames,
+                'hashes': {n: digest(members[n]) for n in ('labels.openlabel.json','LICENSE.txt','ATTRIBUTION.txt')}}
+    members['manifest.json'] = encoded(manifest)
+    reference = encoded({'schemaVersion': 'labelxr-world-boxes/v1', 'boxes': expected})
+    out = io.BytesIO()
+    with zipfile.ZipFile(out,'w',compression=zipfile.ZIP_STORED,allowZip64=False) as archive:
+        for name in ['manifest.json','labels.openlabel.json','LICENSE.txt','ATTRIBUTION.txt',*[f['pcd'] for f in frames]]:
+            info = zipfile.ZipInfo(name,(1980,1,1,0,0,0)); info.create_system,info.external_attr=3,0o100644<<16
+            archive.writestr(info,members[name])
+    data=out.getvalue();proof=validator.validate_bundle(data,reference)
+    for name,value in raw.items():
+        require(digest(read(sequence_dir/name,limits[name],name))==digest(value), name,'sha256','Source changed during conversion; no output published.')
+    require(digest(read(Path(attribution),65536,'ATTRIBUTION.txt'))==digest(attr), 'ATTRIBUTION.txt','sha256','Attribution changed during conversion.')
+    publish(output,data)
+    return {'schema':'labelxr-pandaset-conversion/v1','converted':True,'bundleSha256':proof['bundleSha256'],
+            'sourceSha256':source_digest,'frameCount':proof['frameCount'],'pointCount':proof['pointCount'],
+            'boxCount':proof['boxCount'],'sourceWorldBoxesChecked':proof['expectedWorldBoxesChecked'],
+            'sourceOrigin':origin,'originStrategy':origin_decision['strategy'],'sourceRowsDropped':0,
+            'targetsExecuted':False,'pointWorldToleranceMetres':POINT_TOLERANCE,'rights':proof['rights']}
+
+
+def pandaset_main(argv=None):
+    parser=argparse.ArgumentParser(description='Restricted PandaSet conversion; no serialized target execution.')
+    parser.add_argument('--sequence-dir',required=True);parser.add_argument('--frames',required=True)
+    parser.add_argument('--source',required=True);parser.add_argument('--attribution',required=True);parser.add_argument('--out',required=True)
+    args=parser.parse_args(argv)
+    try:
+        source=validator.bounded_json(read(Path(args.source),65536,'pandaset-source.json'),'pandaset-source.json',65536,8)
+        receipt=convert_pandaset(sequence_dir=args.sequence_dir,frame_ids=args.frames.split(','),source=source,attribution=args.attribution,output=args.out)
+    except (ConversionError,validator.ValidationError,OSError,OverflowError,ValueError,KeyError,TypeError):
+        print(json.dumps({'converted':False,'detail':'PandaSet conversion stopped; exact layout, geometry, rights or output state differs.'}),file=sys.stderr)
+        return 1
+    print(json.dumps(receipt,sort_keys=True));return 0
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pcd-dir", required=True)
@@ -601,4 +754,4 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(pandaset_main(sys.argv[2:]) if sys.argv[1:2] == ['pandaset'] else main())
