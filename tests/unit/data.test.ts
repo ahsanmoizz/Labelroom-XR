@@ -1,3 +1,6 @@
+import assert from 'node:assert/strict';
+import { beforeAll } from 'vitest';
+import { exportBundleBytes } from '../../src/data/export';
 import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { unzipSync, zipSync } from 'fflate';
@@ -678,4 +681,56 @@ describe('DATA-01/02 bundle integration component (real data and browser/Quest a
     const members = bundleMembers(); changeBundleManifest(members, m => { m.source.sha256 = 'a'.repeat(64); }); const zip = bundleZip(members), r = await loadBundleBytes(zip);
     expect(r.manifest.source.sha256).toBe('a'.repeat(64)); expect(r.bundleSha256).toBe(memberSha(zip)); expect(r.memberHashes['manifest.json']).toBe(memberSha(members['manifest.json']));
   });
+});
+
+// LABELXR-EXPORT-TESTS-v1
+describe('EXPORT-01 serializer component; approval/save and browser integration pending', () => {
+  let source: Awaited<ReturnType<typeof loadBundleBytes>>;
+  beforeAll(async () => { source = await loadBundleBytes(new Uint8Array(readFileSync('fixtures/contract-example.zip'))); });
+  const enc = (x: unknown) => new TextEncoder().encode(JSON.stringify(x));
+const snap=(s: Awaited<ReturnType<typeof loadBundleBytes>>,labels=s.getMemberBytes('labels.openlabel.json'))=>({saveState:'saved',revision:1,sourceBundleSha256:s.bundleSha256,labels,audit:enc({revision:1,decisions:[]}),review:enc({revision:1,issues:[]})});
+const test = (name: string, fn: () => unknown | Promise<unknown>) => it(name, fn);
+const reject=(s: Awaited<ReturnType<typeof loadBundleBytes>>,x: any)=>assert.rejects(exportBundleBytes(s,x));
+test('untouched labels, points and source identity survive export',async()=>{const out=await loadBundleBytes(await exportBundleBytes(source,snap(source)));assert.deepEqual(out.labelsDocument,source.labelsDocument);assert.equal(out.manifest.source.sha256,source.manifest.source.sha256);for(const f of source.frames)assert.deepEqual(out.getMemberBytes(f.pcd),source.getMemberBytes(f.pcd));});
+for(const state of ['pending','failed',undefined])test('refuse save state '+state,()=>reject(source,{...snap(source),saveState:state}));
+for(const revision of [-1,301,1.5,NaN])test('refuse revision '+revision,()=>reject(source,{...snap(source),revision}));
+test('refuse wrong source hash',()=>reject(source,{...snap(source),sourceBundleSha256:'0'.repeat(64)}));
+test('refuse mismatched audit revision',()=>reject(source,{...snap(source),audit:enc({revision:2})}));
+test('refuse mismatched review revision',()=>reject(source,{...snap(source),review:enc({revision:2})}));
+test('refuse duplicate JSON history keys',()=>reject(source,{...snap(source),audit:new TextEncoder().encode('{"revision":1,"revision":1}')}));
+test('refuse nonfinite history',()=>reject(source,{...snap(source),audit:new TextEncoder().encode('{"revision":1,"value":1e400}')}));
+test('refuse oversized labels',()=>reject(source,{...snap(source),labels:new Uint8Array(2*1024*1024+1)}));
+test('refuse shared input',()=>reject(source,{...snap(source),labels:new Uint8Array(new SharedArrayBuffer(10))}));
+const pristine=(): any=>structuredClone(source.labelsDocument);
+const frameId='0', objectId='object-01';
+const occurrence=(d: any)=>d.openlabel.frames[frameId].objects[objectId];
+const edits: Array<[string,(d: any)=>void]>=[['class',d=>d.openlabel.objects[objectId].type='changed'],['global metadata',d=>d.openlabel.metadata.newUnknown='changed'],['frame metadata',d=>d.openlabel.frames[frameId].newUnknown=true],['cuboid metadata',d=>occurrence(d).object_data.cuboid[0].newUnknown='changed'],['object addition',d=>d.openlabel.frames[frameId].objects.new=structuredClone(occurrence(d))],['timestamp',d=>d.openlabel.frames[frameId].frame_properties.timestamp+=1],['invalid geometry',d=>occurrence(d).object_data.cuboid[0].val[7]=0],['invalid quaternion',d=>occurrence(d).object_data.cuboid[0].val[3]=0.5]];
+for(const [name,change] of edits)test('refuse '+name,()=>{const d=pristine();change(d);return reject(source,snap(source,enc(d)));});
+test('one occurrence removal retains global metadata',async()=>{const d=pristine();delete d.openlabel.frames[frameId].objects[objectId];const out=await loadBundleBytes(await exportBundleBytes(source,snap(source,enc(d))));assert.deepEqual(out.labelsDocument,d);assert.deepEqual(out.labelsDocument.openlabel.objects,source.labelsDocument.openlabel.objects);});
+test('mutation during await cannot change the captured snapshot',async()=>{const x=snap(source),original=Buffer.from(x.labels),pending=exportBundleBytes(source,x);x.labels.fill(0);x.revision=20;const out=await loadBundleBytes(await pending);assert.deepEqual(Buffer.from(out.getMemberBytes('labels.openlabel.json')),original);assert.equal(out.historicalMetadata.audit.revision,1);});
+test('historical audit and review stay historical on reexport',async()=>{const first=await loadBundleBytes(await exportBundleBytes(source,snap(source)));const again=await loadBundleBytes(await exportBundleBytes(first,snap(first)));assert.deepEqual(again.historicalMetadata.audit.importedHistory,first.historicalMetadata.audit);assert.deepEqual(again.historicalMetadata.review.importedHistory,first.historicalMetadata.review);});
+test('forged source getters cannot substitute another archive',async()=>reject({...source,getOriginalZipBytes:()=>new Uint8Array([1,2,3])},snap(source)));
+test('deterministic export for same snapshot',async()=>assert.deepEqual(await exportBundleBytes(source,snap(source)),await exportBundleBytes(source,snap(source))));
+
+it('preserves Unicode, unknown attributes and sourceOrigin while changing geometry', async()=>{
+ const members=bundleMembers(), l=labels();
+ l.vendor={text:'ہنان',values:[true,null,{x:7}]};l.openlabel.objects['object-01'].attributes={state:'occluded'};
+ l.openlabel.frames['0'].objects['object-01'].object_data.points2d=[{name:'unrelated',val:[1,2]}];
+ members['labels.openlabel.json']=enc(l);changeBundleManifest(members,m=>{m.sourceOrigin=[10000,-20000,300];});
+ const original=await loadBundleBytes(bundleZip(members)), d=structuredClone(l);val(d)[0]=0.1;
+ const result=await loadBundleBytes(await exportBundleBytes(original,snap(original,enc(d))));
+ expect(result.labelsDocument).toEqual(d);expect(result.manifest.sourceOrigin).toEqual([10000,-20000,300]);
+ expect(original.labelsDocument).toEqual(l);expect(result.getMemberBytes('frames/000.pcd')).toEqual(original.getMemberBytes('frames/000.pcd'));
+});
+it('preserves prototype-like frame and object IDs without pollution during export', async()=>{
+ const members=bundleMembers(),l=labels(),f=l.openlabel.frames['0'],occurrence=structuredClone(f.objects['object-01']);
+ l.openlabel.objects=JSON.parse('{"__proto__":{"type":"Example"}}');
+ f.objects=JSON.parse('{}');Object.defineProperty(f.objects,'__proto__',{value:occurrence,enumerable:true});
+ l.openlabel.frames=JSON.parse('{}');Object.defineProperty(l.openlabel.frames,'__proto__',{value:f,enumerable:true});
+ members['labels.openlabel.json']=enc(l);changeBundleManifest(members,m=>{m.frames[0].id='__proto__';});
+ const original=await loadBundleBytes(bundleZip(members)),d=structuredClone(l);d.openlabel.frames['__proto__'].objects['__proto__'].object_data.cuboid[0].val[0]=0.1;
+ const result=await loadBundleBytes(await exportBundleBytes(original,snap(original,enc(d))));
+ expect(result.labelsDocument).toEqual(d);expect(Object.getPrototypeOf({})).toBe(Object.prototype);
+});
+
 });
