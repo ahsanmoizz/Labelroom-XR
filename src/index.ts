@@ -1,19 +1,27 @@
-// LABELXR-STARTUP-ENTRY-v1
-import { createStartup } from './app/startup.js';
+// LABELXR-ACCOUNT-ENTRY-v1
+import { createApplicationHost } from './app/host.js';
 import { createSupabaseInitializer } from './services/supabase.js';
-import { renderStartup } from './ui/setup.js';
+import { createSupabaseAuthPort } from './services/auth.js';
+import { createChallenge, loadTurnstile } from './services/captcha.js';
+import { createSceneLoader } from './services/scene.js';
 
-const host = document.getElementById('setup-status');
-const container = document.getElementById('scene-container');
-if (!host || !(container instanceof HTMLDivElement)) throw new Error('Required application containers are missing.');
-const startup = createStartup({
-  render: view => renderStartup(host, view, () => window.location.reload()),
-  connect: createSupabaseInitializer(() => import('@supabase/supabase-js')),
-  startWorld: async () => {
+const statusRoot = document.getElementById('setup-status');
+const accountRoot = document.getElementById('account-container');
+const privateRoot = document.getElementById('scene-container');
+if (!statusRoot || !accountRoot || !privateRoot) throw new Error('Required application containers are missing.');
+const connect = createSupabaseInitializer(() => import('@supabase/supabase-js'));
+const application = createApplicationHost({
+  statusRoot, accountRoot, privateRoot,
+  connect: async config => createSupabaseAuthPort(await connect(config)),
+  challenge: (element, siteKey) => createChallenge(element, siteKey, () => loadTurnstile(window)),
+  openWorkspace: createSceneLoader(async () => {
     const [{ World }, { default: options }] = await Promise.all([
       import('@iwsdk/core'), import('virtual:iwsdk-project')
     ]);
-    await World.create(container, options);
-  }
+    return container => World.create(container, options);
+  }),
+  reload: () => window.location.reload()
 });
-void startup(import.meta.env, import.meta.env.DEV ? 'development' : 'production', window.location.origin);
+window.addEventListener('pagehide', () => application.dispose(), { once: true });
+window.addEventListener('pageshow', event => { if (event.persisted) window.location.reload(); });
+void application.start(import.meta.env, import.meta.env.DEV ? 'development' : 'production', window.location.origin);
