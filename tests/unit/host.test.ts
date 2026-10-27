@@ -1,20 +1,13 @@
 // LABELXR-HOST-TESTS-v1
 import { describe, it, beforeAll, afterAll } from 'vitest';
-import fs from 'node:fs';import path from 'node:path';import assert from 'node:assert/strict';import { pathToFileURL } from 'node:url';import { tmpdir } from 'node:os';import ts from 'typescript';
+import fs from 'node:fs';import path from 'node:path';import assert from 'node:assert/strict';import { pathToFileURL } from 'node:url';import { tmpdir } from 'node:os';import {buildSync} from 'esbuild';
 import { createApplicationHost, WorkspaceCleanupError } from '../../src/app/host.js';
 import { createSceneLoader, ownScene } from '../../src/services/scene.js';
 import { createChallenge } from '../../src/services/captcha.js';
 const projectRoot = process.cwd();
 const base = fs.mkdtempSync(path.join(tmpdir(), 'labelxr-host-unit-'));
-// Compile only exact local source into this owned temporary entry fixture.
-// Full installed-type checking remains a separate project check.
-const sources = ['app/config.ts','app/host.ts','app/private-scope.ts','services/auth.ts','services/captcha.ts','services/scene.ts','services/supabase.ts','ui/login.ts','ui/setup.ts','index.ts'];
-for (const relative of sources) {
-  const source = fs.readFileSync(path.join(projectRoot,'src',relative),'utf8');
-  const output = ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2020,module:ts.ModuleKind.ESNext},fileName:relative}).outputText;
-  const destination=path.join(base,relative.replace(/\.ts$/,'.js'));
-  fs.mkdirSync(path.dirname(destination),{recursive:true});fs.writeFileSync(destination,output,{flag:'wx'});
-}
+// Bundle local entry dependencies; live SDK/client imports stay behind their existing gates.
+buildSync({entryPoints:[path.join(projectRoot,'src/index.ts')],bundle:true,format:'esm',platform:'browser',target:'es2020',external:['@iwsdk/core','@supabase/supabase-js','virtual:iwsdk-project'],outfile:path.join(base,'index.js'),logLevel:'silent'});
 fs.writeFileSync(path.join(base,'package.json'),'{"type":"module"}\n',{flag:'wx'});
 const previousFetch = globalThis.fetch;let requests=0;
 beforeAll(()=>{globalThis.fetch=async()=>{requests++;throw Error('Provider requests forbidden in host checks.')}});

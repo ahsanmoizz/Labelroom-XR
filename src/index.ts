@@ -3,7 +3,7 @@ import { createApplicationHost } from './app/host.js';
 import { createSupabaseInitializer } from './services/supabase.js';
 import { createSupabaseAuthPort } from './services/auth.js';
 import { createChallenge, loadTurnstile } from './services/captcha.js';
-import { createSceneLoader } from './services/scene.js';
+import { createDatasetWorkspace } from './app/dataset-workspace.js';
 
 const statusRoot = document.getElementById('setup-status');
 const accountRoot = document.getElementById('account-container');
@@ -14,7 +14,7 @@ const application = createApplicationHost({
   statusRoot, accountRoot, privateRoot,
   connect: async config => createSupabaseAuthPort(await connect(config)),
   challenge: (element, siteKey) => createChallenge(element, siteKey, () => loadTurnstile(window)),
-  openWorkspace: createSceneLoader(async () => {
+  openWorkspace: createDatasetWorkspace(async () => {
     const [{ World }, { default: options }] = await Promise.all([
       import('@iwsdk/core'), import('virtual:iwsdk-project')
     ]);
