@@ -55,6 +55,9 @@ export function mountLoginPanel(root: HTMLElement, auth: Account, challenge: Cha
     }
     const captcha = challenge.getState().status;
     const signed = state.user !== null, awaiting = state.phase === 'awaiting-code' || state.phase === 'verifying-code';
+    title.textContent=signed?'Account':'Open your review workspace'; intro.hidden=signed;
+    notice.hidden=signed && state.user?.kind!=='guest';
+    card.style.padding=signed?'12px':'24px'; card.style.margin=signed?'0':'16px auto';
     const busy = pending || !['signed-out', 'awaiting-code', 'signed-in'].includes(state.phase);
     card.setAttribute('aria-busy', busy ? 'true' : 'false');
     emailForm.hidden = signed; codeForm.hidden = signed || !awaiting;

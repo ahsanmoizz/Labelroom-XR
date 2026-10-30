@@ -15,8 +15,8 @@ export interface DatasetPanelOptions {
 /** Local preview only. Source data never becomes an approval or a saved decision. */
 export function mountDatasetPanel(root: HTMLElement, options: DatasetPanelOptions) {
   const doc = root.ownerDocument, panel = doc.createElement('section');
-  panel.setAttribute('aria-label', 'Local dataset preview');
-  panel.style.cssText = 'position:absolute;top:1rem;left:1rem;max-width:min(26rem,calc(100% - 2rem));max-height:70%;overflow:auto;padding:1rem;background:#10212eee;color:#edf7ff;border:1px solid #527188;border-radius:12px;pointer-events:auto;font:14px system-ui;z-index:2';
+  panel.setAttribute('aria-label', 'Local dataset preview'); panel.className='dataset-panel';
+  panel.style.cssText = 'position:absolute;top:1rem;right:1rem;width:22rem;max-width:calc(100% - 2rem);max-height:calc(100% - 2rem);overflow:auto;padding:1rem;background:#10212eee;color:#edf7ff;border:1px solid #527188;border-radius:12px;pointer-events:auto;font:14px system-ui;z-index:2';
   const title = doc.createElement('h2'); title.textContent = 'Local dataset preview';
   const note = doc.createElement('p'); note.textContent = 'Open a LabelRoom ZIP, up to 25 MiB. Source units are metres. This preview does not save reviews or upload data.';
   const fileLabel = doc.createElement('label'); fileLabel.textContent = 'Choose dataset ZIP ';
@@ -28,7 +28,14 @@ export function mountDatasetPanel(root: HTMLElement, options: DatasetPanelOption
   const scale = doc.createElement('input'); scale.type = 'range'; scale.min = '0.02'; scale.max = '0.20'; scale.step = '0.01'; scale.value = '0.02'; scale.setAttribute('aria-label', 'Display scale'); scaleLabel.append(scale);
   const reset = doc.createElement('button'); reset.type = 'button'; reset.textContent = 'Reset view';
   const rights = doc.createElement('pre'); rights.setAttribute('aria-label', 'Dataset licence and attribution'); rights.style.cssText = 'white-space:pre-wrap;overflow-wrap:anywhere;font:12px system-ui';
-  panel.append(title, note, fileLabel, status, previous, next, scaleLabel, reset, rights); root.append(panel);
+  const controlsRow=doc.createElement('div'); controlsRow.className='dataset-controls';
+  controlsRow.style.cssText='display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px';
+  scaleLabel.style.cssText='grid-column:1/-1;display:grid;gap:6px'; scale.style.width='100%';
+  file.style.cssText='display:block;width:100%;max-width:100%;margin-top:6px';
+  controlsRow.append(previous,next,scaleLabel,reset);
+  const terms=doc.createElement('details'), summary=doc.createElement('summary'); summary.textContent='Dataset licence and attribution';
+  terms.append(summary,rights); terms.style.marginTop='12px';
+  panel.append(title, note, fileLabel, status, controlsRow, terms); root.append(panel);
   let closed = false, blocked = false, busy = false, ticket = 0, index = 0;
   let source: BundleSource | undefined, view: DatasetView | undefined;
   const listeners: (() => void)[] = [];
