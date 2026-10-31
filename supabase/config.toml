@@ -1,0 +1,7 @@
+# LABELXR-SUPABASE-FUNCTION-CONFIG-v1
+project_id = "labelroom-xr"
+[functions.project-admin]
+enabled = true
+verify_jwt = true
+entrypoint = "./functions/project-admin/index.ts"
+import_map = "./functions/project-admin/deno.json"

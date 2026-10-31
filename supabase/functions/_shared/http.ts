@@ -12,6 +12,12 @@ const MESSAGES = {
   authentication: [401, 'Sign in again before continuing.'],
   authUnavailable: [503, 'Account verification is temporarily unavailable.'],
   member: [403, 'A permanent account is required for this operation.'],
+  projectInput: [400, 'The project request is invalid.'],
+  projectAccess: [403, 'This project is unavailable to this account.'],
+  projectQuota: [409, 'Your three-project limit has been reached.'],
+  projectConflict: [409, 'The project changed or the upload expired. Reload its current state.'],
+  projectData: [422, 'The stored dataset failed validation.'],
+  projectUnavailable: [503, 'Project storage is temporarily unavailable. Retry with the same project ID.'],
   internal: [500, 'The operation could not be completed.'],
 } as const;
 export type ProblemCode = keyof typeof MESSAGES;
