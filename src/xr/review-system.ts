@@ -1,12 +1,12 @@
 // LABELXR-READONLY-REVIEW-VIEW-v1
 import type { World } from '@iwsdk/core';
 import { BufferAttribute, BufferGeometry, Group, LineBasicMaterial, LineSegments, Points, PointsMaterial, Sphere, Vector3 } from 'three';
-import type { BundleSource } from '../data/bundle';
+import type { FrameViewSource } from './frame-view';
 import { buildFrameView, clipViewBounds, tabletopPlacement } from './frame-view';
 import { previewDistance } from './preview-fit';
 
 /** An ECS-owned read-only view; this component performs no storage, network or label edits. */
-export function createReviewView(world: Pick<World,'createTransformEntity'> & Partial<Pick<World,'camera'>>, source: BundleSource) {
+export function createReviewView(world: Pick<World,'createTransformEntity'> & Partial<Pick<World,'camera'>>, source: FrameViewSource) {
   const bounds=clipViewBounds(source), maxPoints=Math.max(...source.frames.map(f=>f.pointCount)), maxBoxes=Math.max(...source.frames.map(f=>f.boxes.length));
   const pointPositions=new BufferAttribute(new Float32Array(maxPoints*3),3);
   const boxPositions=new BufferAttribute(new Float32Array(maxBoxes*72),3);

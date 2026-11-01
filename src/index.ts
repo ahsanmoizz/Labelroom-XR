@@ -4,6 +4,7 @@ import { createSupabaseInitializer } from './services/supabase.js';
 import { createSupabaseAuthPort } from './services/auth.js';
 import { createChallenge, loadTurnstile } from './services/captcha.js';
 import { createDatasetWorkspace } from './app/dataset-workspace.js';
+import { createProjectsService, createSupabaseProjectsSessions } from './services/projects.js';
 
 const statusRoot = document.getElementById('setup-status');
 const accountRoot = document.getElementById('account-container');
@@ -19,7 +20,7 @@ const application = createApplicationHost({
       import('@iwsdk/core'), import('virtual:iwsdk-project')
     ]);
     return container => World.create(container, options);
-  }),
+  }, { projects: async context => createProjectsService(createSupabaseProjectsSessions(await connect(context.config), context.config)) }),
   reload: () => window.location.reload()
 });
 window.addEventListener('pagehide', () => application.dispose(), { once: true });

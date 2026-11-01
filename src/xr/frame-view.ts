@@ -1,5 +1,6 @@
 // LABELXR-FRAME-VIEW-v1
 import type { BundleSource } from '../data/bundle';
+export type FrameViewSource = Pick<BundleSource, 'frames' | 'getFramePoints'>;
 import { toDisplay, type XYZ } from '../domain/coordinates';
 import { isValidBox } from '../domain/geometry';
 import { LIMITS } from '../domain/limits';
@@ -38,7 +39,7 @@ function accumulator() {
   };
 }
 /** Produce display-only buffers. Local XYZ source metres and identities stay unchanged. */
-export function buildFrameView(source: BundleSource, frameId: string): FrameView {
+export function buildFrameView(source: FrameViewSource, frameId: string): FrameView {
   const frame = source.frames.find(f=>f.id===frameId);
   if (!frame || !Number.isInteger(frame.pointCount) || frame.pointCount<1 || frame.pointCount>LIMITS.maxPointsPerFrame || frame.boxes.length>LIMITS.maxLabelsPerFrame) throw new Error('Unknown or invalid frame.');
   const points = source.getFramePoints(frameId);
@@ -58,7 +59,7 @@ export function buildFrameView(source: BundleSource, frameId: string): FrameView
   return { id: frame.id, pointCount: frame.pointCount, boxIds: Object.freeze([...ids]), positions, boxEdges, bounds: bounds.finish() };
 }
 /** One clip-wide focus avoids a different recentering at every frame switch. */
-export function clipViewBounds(source: BundleSource): ViewBounds {
+export function clipViewBounds(source: FrameViewSource): ViewBounds {
   if(source.frames.length<1 || source.frames.length>LIMITS.maxFrames) throw new Error('Invalid clip frame count.');
   const total=accumulator();
   for(const frame of source.frames) { const {min,max}=buildFrameView(source,frame.id).bounds; total.add(min); total.add(max); }

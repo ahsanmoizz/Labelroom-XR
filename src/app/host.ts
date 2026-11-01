@@ -7,6 +7,7 @@ import { mountLoginPanel } from '../ui/login.js';
 import { renderStartup } from '../ui/setup.js';
 
 export interface WorkspaceResource { dispose(): void }
+export interface WorkspaceContext { readonly user: NonNullable<AuthState['user']>; readonly config: Readonly<PublicAppConfig> }
 export class WorkspaceCleanupError extends Error {
   constructor() { super('Workspace could not be cleared.'); }
 }
@@ -17,7 +18,7 @@ export interface HostDependencies {
   privateRoot: HTMLElement;
   connect(config: Readonly<PublicAppConfig>): Promise<AuthPort>;
   challenge(container: HTMLElement, siteKey: string): Challenge;
-  openWorkspace(container: HTMLElement, signal: AbortSignal): Promise<WorkspaceResource>;
+  openWorkspace(container: HTMLElement, signal: AbortSignal, context: WorkspaceContext): Promise<WorkspaceResource>;
   reload(): void;
   every?: (callback: () => void, milliseconds: number) => () => void;
 }
@@ -34,6 +35,7 @@ export function createApplicationHost(dependencies: HostDependencies) {
   let panel: ReturnType<typeof mountLoginPanel> | undefined;
   let unsubscribe: (() => void) | undefined, challenge: Challenge | undefined;
   let pending: Promise<HostOutcome> | undefined, queue: Promise<void> = Promise.resolve();
+  let workspaceConfig: Readonly<PublicAppConfig> | undefined;
   privateRoot.hidden = true; accountRoot.hidden = true; privateRoot.replaceChildren();
   function clearPrivateView() { identity = null; privateRoot.hidden = true; privateRoot.replaceChildren(); }
   function hideStatus() { statusRoot.hidden = true; statusRoot.replaceChildren(); }
@@ -59,6 +61,8 @@ export function createApplicationHost(dependencies: HostDependencies) {
     const key = state.user.id + ':' + state.user.kind;
     if (identity === key || !account) return;
     identity = key;
+    if (!workspaceConfig) { closeAfterFailure(); return; }
+    const context: WorkspaceContext = Object.freeze({ user: Object.freeze({ ...state.user }), config: workspaceConfig });
     const scope = account.scope, ticket = scope.ticket(), controller = new AbortController();
     const frame = doc.createElement('div'); frame.className = 'workspace-scene';
     frame.style.cssText = 'width:100%;height:100%;visibility:hidden';
@@ -76,7 +80,7 @@ export function createApplicationHost(dependencies: HostDependencies) {
     queue = queue.then(async () => {
       if (disposed || fatal || !ticket.current() || controller.signal.aborted) return;
       let opened: WorkspaceResource;
-      try { opened = await dependencies.openWorkspace(frame, controller.signal); }
+      try { opened = await dependencies.openWorkspace(frame, controller.signal, context); }
       catch (error) {
         if (error instanceof WorkspaceCleanupError && !disposed) { closeAfterFailure(); return; }
         if (!disposed && !fatal && ticket.current() && !controller.signal.aborted) {
@@ -101,6 +105,7 @@ export function createApplicationHost(dependencies: HostDependencies) {
       statusRoot.hidden = false;
       if (settings.status === 'setup-required') { renderStartup(statusRoot, settings, dependencies.reload); return 'setup-required'; }
       if (pageOrigin !== settings.config.appOrigin) { renderStartup(statusRoot, { status: 'origin-mismatch' }, dependencies.reload); return 'origin-mismatch'; }
+      workspaceConfig = settings.config;
       renderStartup(statusRoot, { status: 'connecting' }, dependencies.reload);
       let port: AuthPort;
       try { port = await dependencies.connect(settings.config); }
