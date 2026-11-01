@@ -14,3 +14,15 @@ Both arguments must be absolute paths. The output must be a new `core-sql-*.json
 The migration is intentionally hash-bound in this test. A migration change requires review of the SQL, expectations and pinned migration hash together. Do not paste the synthetic auth/storage fixture into a cloud database.
 
 This test does not establish live gateway/JWT behavior, object-store upload/persistence, signed URL expiry, two simultaneous database sessions, or a saved review. Project-admin, atomic review/budget RPCs, staging authorization and Quest acceptance remain separate gates. The frontend unit suite remains 796 cases; these 108 SQL cases are reported separately.
+
+<!-- LABELXR-REVIEW-BUDGET-SQL-README-v1 -->
+
+## Atomic review and budget source
+
+Migrations run in numeric order:001 core,002 review,003 agent budget,004 projects. This source package applies no cloud migration. `commit_review(command jsonb)` is authenticated-only and derives `auth.uid()`. It checks current ownership/account/project lifetime,strict command shape,revision,before geometry,upright cuboid bounds and oriented duplicate overlap. It commits one version,audit and head atomically. Identical request UUID/payload retries return the same receipt. Undo references the latest decision request UUID;the internal audit links its mutation UUID and restores the prior snapshot/verdicts exactly. Original metadata and source remain immutable.
+
+`reserve_ai_budget(owner,project,turn,base_revision,call_index)` is service-role only. A verified endpoint must derive owner using `auth.getUser`. Only `disposition=new` permits one provider dispatch;replay never permits a second call. Lost acknowledgements/failures consume reservations without automatic refund. Calls must be sequential1–3;UTC limits are3 guest or30 member turns and300 global reserved calls/day. A turn UUID cannot cross project,revision or UTC day. No provider endpoint is added here.
+
+`review-budget.mjs --runtime ABS_PGLITE --compiled ABS_REFERENCE --output ABS_NEW_JSON` uses pinned in-memory PostgreSQL17.5 with synthetic auth/storage. The private reference exports existing TypeScript review/geometry functions and `unzipSync`. Its82 cases cover SQL grants,identity,atomic failure,metadata,replay,undo,duplicate threshold,UTF16/numeric hashes and budgets. Existing108 core and45 project cases remain required separately. Hash/overlap formatting and reset timezone are fixed independently of session settings.
+
+These fixtures do not prove live JWT/RLS/storage,real concurrent connections,browser acknowledgements,provider dispatch or Quest acceptance. Review UI/service wiring,scheduled staging/guest cleanup and licensed demo reset remain pending.
