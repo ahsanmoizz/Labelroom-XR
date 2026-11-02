@@ -5,3 +5,9 @@ enabled = true
 verify_jwt = true
 entrypoint = "./functions/project-admin/index.ts"
 import_map = "./functions/project-admin/deno.json"
+
+[functions.review-commit]
+enabled = true
+verify_jwt = true
+entrypoint = "./functions/review-commit/index.ts"
+import_map = "./functions/review-commit/deno.json"

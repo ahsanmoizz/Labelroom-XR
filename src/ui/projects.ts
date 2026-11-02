@@ -6,7 +6,7 @@ export type ProjectsService = ReturnType<typeof createProjectsService>;
 export interface ProjectsPanelOptions {
   service: ProjectsService;
   signal: AbortSignal;
-  preview: { current(): BundleSource | undefined; available(): boolean; subscribe(listener: () => void): () => void; show(result: OpenedProject): void; clear(): void };
+  preview: { current(): BundleSource | undefined; available(): boolean; subscribe(listener: () => void): () => void; subscribeAvailability?(listener: () => void): () => void; show(result: OpenedProject): void; clear(): void };
   newId?: () => string;
 }
 /** The verified member workspace owns this panel; the service independently verifies every bearer and UID. */
@@ -73,7 +73,8 @@ export function mountPrivateProjectsPanel(root: HTMLElement, options: ProjectsPa
     void operation('save', async signal => { const bytes = source.getOriginalZipBytes(), result = await options.service.create(bytes, id, signal); if (result.id !== id || result.status !== 'ready' || result.source_hash !== source.bundleSha256 || result.source_bytes !== bytes.length) throw new Error('Save response differs.'); return () => { loaded = result.id; items = [result, ...items.filter(item => item.id !== result.id)]; status.textContent = `Saved project ${result.id.slice(0, 8)} privately.`; render(); }; });
   });
   const unsubscribe = options.preview.subscribe(() => { if (closed || presenting) return; generation++; active?.abort(); loaded = undefined; armed = undefined; const source = options.preview.current(); if (source && pending?.hash !== source.bundleSha256) pending = undefined; if (busy) status.textContent = 'Dataset changed. Private operation cancelled. Refresh projects to check any pending result.'; update(); });
-  function dispose() { if (closed) return; closed = true; generation++; active?.abort(); active = undefined; unsubscribe(); options.signal.removeEventListener('abort', dispose); listeners.splice(0).forEach(close => close()); rowListeners.splice(0).forEach(close => close()); items = []; pendingDeletes.clear(); pending = undefined; loaded = undefined; armed = undefined; rows.replaceChildren(); panel.remove(); }
+  const unsubscribeAvailability = options.preview.subscribeAvailability?.(update);
+  function dispose() { if (closed) return; closed = true; generation++; active?.abort(); active = undefined; unsubscribe(); unsubscribeAvailability?.(); options.signal.removeEventListener('abort', dispose); listeners.splice(0).forEach(close => close()); rowListeners.splice(0).forEach(close => close()); items = []; pendingDeletes.clear(); pending = undefined; loaded = undefined; armed = undefined; rows.replaceChildren(); panel.remove(); }
   options.signal.addEventListener('abort', dispose, { once: true }); if (options.signal.aborted) dispose(); else update();
   return { dispose };
 }
