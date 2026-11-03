@@ -477,11 +477,37 @@ function createReviewSdkHandler(config, createClient2, fetcher = globalThis.fetc
   } });
 }
 
+// supabase/functions/_shared/environment.ts
+var invalid = () => {
+  throw Error("Configuration");
+};
+function modern(value, kind) {
+  if (typeof value !== "string" || value.length > 512 || !(kind === "publishable" ? /^sb_publishable_[A-Za-z0-9_-]+$/ : /^sb_secret_[A-Za-z0-9_-]+$/).test(value)) return invalid();
+  return value;
+}
+function named(read, name, kind) {
+  const raw = read(name);
+  if (raw === void 0) return void 0;
+  if (raw.length > 32768) return invalid();
+  let map;
+  try {
+    map = JSON.parse(raw);
+  } catch {
+    return invalid();
+  }
+  if (!map || typeof map !== "object" || Array.isArray(map) || !Object.prototype.hasOwnProperty.call(map, "default")) return invalid();
+  return modern(map.default, kind);
+}
+function publicApiKey(read) {
+  const key = named(read, "SUPABASE_PUBLISHABLE_KEYS", "publishable");
+  return key ?? modern(read("SUPABASE_PUBLISHABLE_KEY"), "publishable");
+}
+
 // supabase/functions/review-commit/entry.ts
 if (import.meta.main) {
   let handler;
   try {
-    handler = createReviewSdkHandler({ url: Deno.env.get("SUPABASE_URL") ?? "", publishableKey: Deno.env.get("SUPABASE_PUBLISHABLE_KEY") ?? "", origin: Deno.env.get("ALLOWED_ORIGIN") ?? "" }, createClient);
+    handler = createReviewSdkHandler({ url: Deno.env.get("SUPABASE_URL") ?? "", publishableKey: publicApiKey((name) => Deno.env.get(name)), origin: Deno.env.get("ALLOWED_ORIGIN") ?? "" }, createClient);
   } catch {
     handler = async () => Response.json({ error: { code: "configuration", message: "Server configuration is unavailable." } }, { status: 503, headers: { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" } });
   }

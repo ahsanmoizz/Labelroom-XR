@@ -1084,9 +1084,47 @@ function createProjectAdminHandler(o) {
   });
 }
 
+// supabase/functions/_shared/environment.ts
+var invalid = () => {
+  throw Error("Configuration");
+};
+function modern(value, kind) {
+  if (typeof value !== "string" || value.length > 512 || !(kind === "publishable" ? /^sb_publishable_[A-Za-z0-9_-]+$/ : /^sb_secret_[A-Za-z0-9_-]+$/).test(value)) return invalid();
+  return value;
+}
+function named(read, name, kind) {
+  const raw = read(name);
+  if (raw === void 0) return void 0;
+  if (raw.length > 32768) return invalid();
+  let map;
+  try {
+    map = JSON.parse(raw);
+  } catch {
+    return invalid();
+  }
+  if (!map || typeof map !== "object" || Array.isArray(map) || !Object.prototype.hasOwnProperty.call(map, "default")) return invalid();
+  return modern(map.default, kind);
+}
+function serverApiKey(read) {
+  const key = named(read, "SUPABASE_SECRET_KEYS", "secret");
+  if (key !== void 0) return key;
+  const single = read("SUPABASE_SECRET_KEY");
+  if (single !== void 0) return modern(single, "secret");
+  const legacy = read("SUPABASE_SERVICE_ROLE_KEY");
+  if (typeof legacy !== "string" || legacy.length > 8192 || !/^[-A-Za-z0-9_]+\.[-A-Za-z0-9_]+\.[-A-Za-z0-9_]+$/.test(legacy)) return invalid();
+  try {
+    const encoded = legacy.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    const payload = JSON.parse(atob(encoded.padEnd(Math.ceil(encoded.length / 4) * 4, "=")));
+    if (!payload || typeof payload !== "object" || Array.isArray(payload) || payload.role !== "service_role") return invalid();
+  } catch {
+    return invalid();
+  }
+  return legacy;
+}
+
 // supabase/functions/project-admin/entry.ts
 function start() {
-  const url = Deno.env.get("SUPABASE_URL") ?? "", key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "", origin = approvedOrigin(Deno.env.get("ALLOWED_ORIGIN") ?? ""), u = new URL(url);
+  const url = Deno.env.get("SUPABASE_URL") ?? "", key = serverApiKey((name) => Deno.env.get(name)), origin = approvedOrigin(Deno.env.get("ALLOWED_ORIGIN") ?? ""), u = new URL(url);
   if (u.origin !== url || u.protocol !== "https:" || !key || key.length > 8192) throw Error("Configuration");
   const boundedFetch = (input, init) => {
     if (new URL(input instanceof Request ? input.url : String(input)).origin !== u.origin) return Promise.reject(Error("Service origin"));

@@ -2,8 +2,9 @@
 import {createClient} from 'npm:@supabase/supabase-js@2.117.3';
 import {createProjectAdminHandler} from '../_shared/projects.ts';
 import {approvedOrigin} from '../_shared/http.ts';
+import {serverApiKey} from '../_shared/environment.ts';
 function start(){
- const url=Deno.env.get('SUPABASE_URL')??'',key=Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')??'',origin=approvedOrigin(Deno.env.get('ALLOWED_ORIGIN')??''),u=new URL(url);
+ const url=Deno.env.get('SUPABASE_URL')??'',key=serverApiKey(name=>Deno.env.get(name)),origin=approvedOrigin(Deno.env.get('ALLOWED_ORIGIN')??''),u=new URL(url);
  if(u.origin!==url||u.protocol!=='https:'||!key||key.length>8192)throw Error('Configuration');
  const boundedFetch:typeof fetch=(input,init)=>{if(new URL(input instanceof Request?input.url:String(input)).origin!==u.origin)return Promise.reject(Error('Service origin'));const signals=[AbortSignal.timeout(8000)];if(init?.signal)signals.push(init.signal);return fetch(input,{...init,redirect:'error',signal:AbortSignal.any(signals)})};
  const client=createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false},global:{fetch:boundedFetch}});
