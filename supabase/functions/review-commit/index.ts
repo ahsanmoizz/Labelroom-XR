@@ -435,7 +435,7 @@ function createReviewHandler(options) {
       }
       if (!result || result.error) {
         const code = result?.error?.code;
-        throw new HttpProblem(code === "42501" ? "projectAccess" : code === "40001" || code === "23514" ? "projectConflict" : code === "22023" ? "projectInput" : "projectUnavailable");
+        throw new HttpProblem(code === "42501" ? "projectAccess" : code === "PT409" || code === "40001" || code === "23514" ? "projectConflict" : code === "22023" ? "projectInput" : "projectUnavailable");
       }
       if (request.signal.aborted) throw new HttpProblem("projectUnavailable");
       let acknowledgement;

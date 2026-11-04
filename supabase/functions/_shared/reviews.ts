@@ -24,7 +24,7 @@ export function createReviewHandler(options:ReviewHandlerOptions){
    const command=parsed.data;let result:Awaited<ReturnType<ReviewRpcPort['commit']>>;
    try{const port=await options.open(token,user,request.signal);if(request.signal.aborted)throw new HttpProblem('authentication');result=await port.commit(command,request.signal)}
    catch(error){if(error instanceof HttpProblem)throw error;throw new HttpProblem('projectUnavailable')}
-   if(!result||result.error){const code=result?.error?.code;throw new HttpProblem(code==='42501'?'projectAccess':code==='40001'||code==='23514'?'projectConflict':code==='22023'?'projectInput':'projectUnavailable')}
+   if(!result||result.error){const code=result?.error?.code;throw new HttpProblem(code==='42501'?'projectAccess':code==='PT409'||code==='40001'||code==='23514'?'projectConflict':code==='22023'?'projectInput':'projectUnavailable')}
    if(request.signal.aborted)throw new HttpProblem('projectUnavailable');
    let acknowledgement;try{acknowledgement=selectReviewAcknowledgement(result.data,command)}catch{throw new HttpProblem('projectData')}
    return jsonResponse(request,origin,id,acknowledgement);
