@@ -11,3 +11,10 @@ enabled = true
 verify_jwt = true
 entrypoint = "./functions/review-commit/index.ts"
 import_map = "./functions/review-commit/deno.json"
+
+# AI verifies the caller with Auth getUser before using any RPC.
+[functions.agent]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/agent/index.ts"
+import_map = "./functions/agent/deno.json"

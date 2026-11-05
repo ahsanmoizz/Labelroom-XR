@@ -1,4 +1,5 @@
 // LABELXR-REVIEW-CONTROLS-v1
+import type {AgentService} from '../services/agent';
 import type {createReviewStore} from '../app/store';
 import type {ReviewFormCache} from '../data/form-draft-cache';
 import {mountFormRecovery} from './form-recovery';
@@ -7,11 +8,11 @@ import {mountAutomaticChecks} from './checks';
 import type {ReviewAnalysisClient,ScopedFit} from '../services/analysis';
 import {manualReviewCommand,duplicateReviewCommand,keepReviewCommand,selectedBox,type DuplicateConfirmation,type ManualBox,type ReviewReason} from '../domain/review-actions';
 export type ReviewStore=ReturnType<typeof createReviewStore>;
-export interface ReviewControlsOptions {formCache?:ReviewFormCache;store:ReviewStore;signal:AbortSignal;focus?(frameId:string,objectId:string):void;newId?:()=>string;download?(bytes:Uint8Array,name:string,type:string):void;analysis?:ReviewAnalysisClient;compareOriginal?(original:boolean):void}
+export interface ReviewControlsOptions {agent?:AgentService;formCache?:ReviewFormCache;store:ReviewStore;signal:AbortSignal;focus?(frameId:string,objectId:string):void;newId?:()=>string;download?(bytes:Uint8Array,name:string,type:string):void;analysis?:ReviewAnalysisClient;compareOriginal?(original:boolean):void}
 /** Desktop actions use the same commands/state machine intended for the spatial controls. */
 export function mountReviewControls(root:HTMLElement,options:ReviewControlsOptions){
  const doc=root.ownerDocument,store=options.store,panel=doc.createElement('section'),title=doc.createElement('h3'),status=doc.createElement('p'),units=doc.createElement('p');panel.setAttribute('aria-label','Review saved labels');panel.style.cssText='margin-top:16px;padding-top:12px;border-top:1px solid #527188';title.textContent='Review saved labels';status.setAttribute('role','status');status.setAttribute('aria-live','polite');units.textContent='Edit source metres and yaw in degrees. Preview does not save. Approve after checking the selected frame and object.';panel.append(title,units,status);
- const controls:HTMLButtonElement[]=[],cleanup:(()=>void)[]=[],urls=new Set<string>();let closed=false,blocked=false,lastRevision=-1,lastSelection='',confirmation:DuplicateConfirmation|undefined,discardArmed=false,showingOriginal=false;let automatic:ReturnType<typeof mountAutomaticChecks>|undefined;let formRecovery:ReturnType<typeof mountFormRecovery>|undefined;
+ const controls:HTMLButtonElement[]=[],cleanup:(()=>void)[]=[],urls=new Set<string>();let closed=false,blocked=false,lastRevision=-1,lastSelection='',confirmation:DuplicateConfirmation|undefined,discardArmed=false,showingOriginal=false;let automatic:ReturnType<typeof mountAutomaticChecks>|undefined;let formRecovery:ReturnType<typeof mountFormRecovery>|undefined;let ai:ReturnType<typeof import('./agent').mountAgentPanel>|undefined;
  function listen(element:HTMLElement,event:string,fn:()=>void){element.addEventListener(event,fn);cleanup.push(()=>element.removeEventListener(event,fn))}
  function select(label:string){const wrap=doc.createElement('label'),element=doc.createElement('select');wrap.textContent=label+' ';element.setAttribute('aria-label',label);wrap.append(element);panel.append(wrap);return element}
  const frame=select('Review frame'),object=select('Review object'),reason=select('Review reason'),issue=select('Reviewed issue type'),partner=select('Duplicate partner');
@@ -41,7 +42,8 @@ export function mountReviewControls(root:HTMLElement,options:ReviewControlsOptio
  if(options.analysis)automatic=mountAutomaticChecks(panel,{store,client:options.analysis,signal:options.signal,select:selectIssue,proposeFit:fitProposal});
  if(options.formCache)formRecovery=mountFormRecovery(panel,{store,cache:options.formCache,signal:options.signal,fields,frame,object,reason,newId,select(frameId,objectId){frame.value=frameId;selection();object.value=objectId;objectChanged()},changed:render});
  const unsubscribe=store.subscribe(render);root.append(panel);render();
- function dispose(){if(closed)return;closed=true;formRecovery?.dispose();formRecovery=undefined;automatic?.dispose();automatic=undefined;unsubscribe();options.signal.removeEventListener('abort',dispose);cleanup.splice(0).forEach(fn=>fn());for(const url of urls)URL.revokeObjectURL(url);urls.clear();panel.replaceChildren();panel.remove()}
+ const spatial=createSpatialReviewPort(panel,store,options.signal);if(options.agent)void import('./agent').then(({mountAgentPanel})=>{if(!closed&&!blocked&&!options.signal.aborted)ai=mountAgentPanel(panel,{store,service:options.agent!,signal:options.signal,selection:()=>({frameId:frame.value,objectId:object.value}),focus:spatial.select,preview:fitProposal});}).catch(()=>{if(!closed)status.textContent='AI controls could not load. Manual review remains available.';});
+ function dispose(){if(closed)return;closed=true;ai?.dispose();formRecovery?.dispose();formRecovery=undefined;automatic?.dispose();automatic=undefined;unsubscribe();options.signal.removeEventListener('abort',dispose);cleanup.splice(0).forEach(fn=>fn());for(const url of urls)URL.revokeObjectURL(url);urls.clear();panel.replaceChildren();panel.remove()}
  options.signal.addEventListener('abort',dispose,{once:true});if(options.signal.aborted)dispose();
- return{element:panel,spatial:createSpatialReviewPort(panel,store,options.signal),dispose,selectFrame(id:string){if(closed||blocked||formRecovery?.selectionLocked()||store.state().phase!=='ready'||!store.snapshot()?.frames.some(f=>f.id===id))return;frame.value=id;selection()},block(text:string){blocked=true;render();status.textContent=text}};
+ return{element:panel,spatial,dispose,selectFrame(id:string){if(closed||blocked||formRecovery?.selectionLocked()||store.state().phase!=='ready'||!store.snapshot()?.frames.some(f=>f.id===id))return;frame.value=id;selection()},block(text:string){ai?.dispose();blocked=true;render();status.textContent=text}};
 }
