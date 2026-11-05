@@ -22,7 +22,7 @@ export function mountReviewWorkspace(root:HTMLElement,options:ReviewStoreOptions
  const store=createReviewStore(options),panel=mountReviewControls(root,{formCache:options.formCache??(globalThis.indexedDB?createIndexedDbFormCache():undefined),store,signal:options.signal,newId:options.newId,focus:options.focus,download:options.download,analysis:options.analysis,compareOriginal(show){const s=store.snapshot(),state=store.state();if(s&&state.phase==='proposed'&&state.command)options.preview?.(s,show?null:state.command as ReviewCommand)}});let seen:ReviewSnapshot|undefined,previewKey='',closed=false;
  const unsubscribe=store.subscribe(()=>{const state=store.state(),s=store.snapshot();if(closed)return;try{options.phase?.(state.phase);if(!s)return;if(state.phase==='proposed'&&state.command){const key=state.requestId??'';if(key!==previewKey){options.preview?.(s,state.command as ReviewCommand);previewKey=key}}else if(state.phase==='ready'){if(previewKey){options.preview?.(s,null);previewKey=''}if(s!==seen){options.present?.(s);seen=s}}}catch{store.close();panel.block('Saved review could not be displayed. Reload this workspace before continuing.')}});
  function dispose(){if(closed)return;closed=true;options.signal.removeEventListener('abort',dispose);unsubscribe();store.close();panel.dispose();seen=undefined}
- options.signal.addEventListener('abort',dispose,{once:true});if(options.signal.aborted)dispose();else void store.reload();return{store,dispose,selectFrame:panel.selectFrame};
+ options.signal.addEventListener('abort',dispose,{once:true});if(options.signal.aborted)dispose();else void store.reload();return{store,dispose,selectFrame:panel.selectFrame,spatial:panel.spatial};
 }
 
 export interface MemberReviewWorkspaceOptions {

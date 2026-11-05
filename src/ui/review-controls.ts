@@ -2,6 +2,7 @@
 import type {createReviewStore} from '../app/store';
 import type {ReviewFormCache} from '../data/form-draft-cache';
 import {mountFormRecovery} from './form-recovery';
+import {createSpatialReviewPort} from './spatial-review-port';
 import {mountAutomaticChecks} from './checks';
 import type {ReviewAnalysisClient,ScopedFit} from '../services/analysis';
 import {manualReviewCommand,duplicateReviewCommand,keepReviewCommand,selectedBox,type DuplicateConfirmation,type ManualBox,type ReviewReason} from '../domain/review-actions';
@@ -42,5 +43,5 @@ export function mountReviewControls(root:HTMLElement,options:ReviewControlsOptio
  const unsubscribe=store.subscribe(render);root.append(panel);render();
  function dispose(){if(closed)return;closed=true;formRecovery?.dispose();formRecovery=undefined;automatic?.dispose();automatic=undefined;unsubscribe();options.signal.removeEventListener('abort',dispose);cleanup.splice(0).forEach(fn=>fn());for(const url of urls)URL.revokeObjectURL(url);urls.clear();panel.replaceChildren();panel.remove()}
  options.signal.addEventListener('abort',dispose,{once:true});if(options.signal.aborted)dispose();
- return{element:panel,dispose,selectFrame(id:string){if(closed||blocked||formRecovery?.selectionLocked()||store.state().phase!=='ready'||!store.snapshot()?.frames.some(f=>f.id===id))return;frame.value=id;selection()},block(text:string){blocked=true;render();status.textContent=text}};
+ return{element:panel,spatial:createSpatialReviewPort(panel,store,options.signal),dispose,selectFrame(id:string){if(closed||blocked||formRecovery?.selectionLocked()||store.state().phase!=='ready'||!store.snapshot()?.frames.some(f=>f.id===id))return;frame.value=id;selection()},block(text:string){blocked=true;render();status.textContent=text}};
 }

@@ -13,9 +13,12 @@ import { reviewFrameSource, reviewProposalFrameSource } from './review-workspace
 import type { ReviewSnapshot } from '../domain/review-snapshot';
 import type { ReviewCommand } from '../domain/revision';
 import type { ReviewPhase } from './store';
+import type {SpatialReviewPort} from '../ui/spatial-review-port';
+import {mountSpatialReview} from '../xr/spatial-review';
 
 export interface OwnedReviewWorkspace extends WorkspaceResource {
   selectFrame?(id: string): void;
+  spatial?: SpatialReviewPort;
   store?: { snapshot(): ReviewSnapshot | undefined };
 }
 export interface ReviewPresentation {
@@ -45,18 +48,18 @@ export function createDatasetWorkspace(load: () => Promise<WorldFactory>, adapte
     let closed = false, cleanupFailed = false;
     let worldOwner: WorkspaceResource | undefined, panel: ReturnType<typeof mountDatasetPanel> | undefined;
     let projects: ReturnType<typeof mountPrivateProjectsPanel> | undefined;
+    let spatial: WorkspaceResource | undefined;
     let review: OwnedReviewWorkspace | undefined, reviewController: AbortController | undefined;
     let reviewClose: HTMLButtonElement | undefined, reviewNotice: HTMLElement | undefined;
     let reviewEpoch = 0, presenting = false, unsubscribeDataset: (() => void) | undefined, unsubscribeFrame: (() => void) | undefined;
     function closeReview(restore = false) {
       const snapshot = review?.store?.snapshot(); reviewEpoch++;
-      reviewController?.abort(); reviewController = undefined;
-      const owned = review; review = undefined;
-      try { owned?.dispose(); } finally {
-        reviewClose?.remove(); reviewNotice?.remove(); reviewClose = undefined; reviewNotice = undefined;
-        try { if (restore && snapshot && panel?.current()?.bundleSha256 === snapshot.sourceBundleSha256) panel.replaceSaved(reviewFrameSource(snapshot), snapshot.sourceBundleSha256); } finally { panel?.setReviewLocked(false); }
-      }
+      const sp=spatial,owned=review,controller=reviewController;spatial=undefined;review=undefined;reviewController=undefined;
+      let failed=false;
+      for(const close of [()=>sp?.dispose(),()=>controller?.abort(),()=>owned?.dispose(),()=>{reviewClose?.remove();reviewNotice?.remove();reviewClose=undefined;reviewNotice=undefined},()=>{if(restore&&snapshot&&panel?.current()?.bundleSha256===snapshot.sourceBundleSha256)panel.replaceSaved(reviewFrameSource(snapshot),snapshot.sourceBundleSha256)},()=>panel?.setReviewLocked(false)])try{close()}catch{failed=true}
+      if(failed)throw new WorkspaceCleanupError();
     }
+
     function dispose() {
       if (closed) { if (cleanupFailed) throw new WorkspaceCleanupError(); return; }
       closed = true; signal.removeEventListener('abort', onAbort);
@@ -91,12 +94,12 @@ export function createDatasetWorkspace(load: () => Promise<WorldFactory>, adapte
           const presentation: ReviewPresentation = {
             present(snapshot) { if (active()) preview.replaceSaved(reviewFrameSource(snapshot), result.original.bundleSha256); },
             preview(snapshot, command) { if (active()) preview.replaceSaved(command ? reviewProposalFrameSource(snapshot, command) : reviewFrameSource(snapshot), result.original.bundleSha256); },
-            focus(frameId) { if (active()) preview.focusFrame(frameId); },
+            focus(frameId,objectId) { if (active()) preview.focusFrame(frameId,objectId); },
             phase(phase) { if (active()) preview.setReviewLocked(phase !== 'ready'); }
           };
           void Promise.resolve().then(() => adapters.review!(preview.element, controller.signal, context, result, presentation)).then(opened => {
             if (!active()) { try { opened.dispose(); } catch { cleanupFailed = true; } return; }
-            review = opened; notice.remove(); reviewNotice = undefined;
+            review = opened; if(opened.spatial)spatial=mountSpatialReview(world,opened.spatial,preview,doc,controller.signal); notice.remove(); reviewNotice = undefined;
           }).catch(() => { if (active()) { preview.setReviewLocked(false); notice.textContent = 'Review controls are unavailable. Close review, then reopen the project to retry.'; } });
         }
         projects = mountPrivateProjectsPanel(preview.element, { service, signal, preview: {

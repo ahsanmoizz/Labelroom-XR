@@ -1,8 +1,11 @@
 // LABELXR-LOCAL-DATASET-PANEL-v1
 import { loadBundleBytes, type BundleSource, type BundleFrame } from '../data/bundle';
 import type { FrameViewSource } from '../xr/frame-view';
+import type {Ray} from 'three';
 
 export interface DatasetView {
+  pick?(ray:Ray):{frameId:string;objectId:string;distance:number}|undefined;
+  select?(frameId:string,objectId:string):void;
   showFrame(id: string): unknown;
   setScale(scale: number): void;
   resetView(): void;
@@ -113,7 +116,10 @@ export function mountDatasetPanel(root: HTMLElement, options: DatasetPanelOption
     subscribeAvailability(listener: () => void) { availability.add(listener); return () => { availability.delete(listener); }; },
     subscribeFrame(listener: (id: string) => void) { frameSubscribers.add(listener); return () => { frameSubscribers.delete(listener); }; },
     setReviewLocked(value: boolean) { if (closed || reviewLocked === value) return; reviewLocked = value; controls(); for (const fn of [...availability]) fn(); },
-    focusFrame(id: string) { if (closed || blocked || busy || !source || !view) return; const target = frames.findIndex(f => f.id === id); if (target < 0) throw new Error('Unknown review frame.'); view.showFrame(id); index = target; describe(); controls(); },
+    pick:(ray:Ray)=>!closed&&!blocked&&!busy?view?.pick?.(ray):undefined,
+    highlight:(frameId:string,objectId:string)=>{if(!closed&&!blocked&&!busy)view?.select?.(frameId,objectId)},
+    recenter:()=>{if(!closed&&!blocked&&!busy&&view){view.resetView();scale.value='0.02';describe()}},
+    focusFrame(id: string,objectId?:string) { if (closed || blocked || busy || !source || !view) return; const target = frames.findIndex(f => f.id === id); if (target < 0) throw new Error('Unknown review frame.'); view.showFrame(id);if(objectId)view.select?.(id,objectId); index = target; describe(); controls(); },
     replaceSaved(display: FrameViewSource, expectedSourceHash: string) {
       if (closed || blocked || busy || !source || !view || source.bundleSha256 !== expectedSourceHash || display.frames.length !== source.frames.length || display.frames.some((f, i) => f.id !== source!.frames[i].id || f.timestamp !== source!.frames[i].timestamp || f.pointCount !== source!.frames[i].pointCount)) throw new Error('Saved view source differs.');
       const frame = frames[index].id, displayScale = Number(scale.value); present(source, display, ticket, false);
