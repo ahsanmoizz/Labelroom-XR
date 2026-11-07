@@ -274,9 +274,10 @@ var finite = z2.number().finite();
 var aiContextSchema = z2.strictObject({ projectId: z2.string().uuid(), sourceBundleSha256: z2.string().regex(/^[a-f0-9]{64}$/), revision: z2.number().int().min(0).max(300), consent: z2.boolean(), frames: z2.array(z2.strictObject({ id: id2, timestamp: finite, pointCount: z2.number().int().min(0).max(2e5), objects: z2.array(z2.strictObject({ id: id2, box: z2.array(finite).length(10) })).max(100) })).min(1).max(10) });
 var messages = { disabled: [503, "AI assistance is disabled or not configured."], consent: [403, "Enable project AI consent before requesting assistance."], conflict: [409, "The saved project changed. Reload before requesting AI."], budget: [429, "The AI budget is exhausted. Manual review remains available."], replay: [409, "This provider reservation was already used or interrupted. It will not be sent again."], input: [400, "The AI request or tool evidence is invalid."], provider: [503, "The model request failed or timed out. No edit was applied."], response: [502, "The model returned an unsupported or ungrounded response."], unavailable: [503, "AI project context is unavailable."] };
 var AgentProblem = class extends Error {
-  constructor(code) {
+  constructor(code, responseReason) {
     super(messages[code][1]);
     this.code = code;
+    this.responseReason = responseReason;
   }
   get status() {
     return messages[this.code][0];
@@ -301,26 +302,63 @@ function providerRequest(step, context) {
     messages2.push({ role: "assistant", content: null, tool_calls: round.calls.map((c) => ({ id: c.id, type: "function", function: { name: c.name, arguments: JSON.stringify(c.args) } })) });
     for (const r of round.results) messages2.push({ role: "tool", tool_call_id: r.call.id, content: JSON.stringify({ scope: { projectId: step.projectId, sourceBundleSha256: step.sourceBundleSha256, revision: step.revision, frameId: r.call.args.frameId }, measurement: r.result }) });
   }
-  const used = step.rounds.reduce((n2, r) => n2 + r.calls.length, 0), body = { model: "openai/gpt-oss-20b", temperature: 0, max_completion_tokens: 700, reasoning_effort: "low", stream: false, parallel_tool_calls: false, tool_choice: step.callIndex === 3 || used >= 8 ? "none" : "auto", tools: toolsDefinition(), messages: messages2 };
+  const used = step.rounds.reduce((n2, r) => n2 + r.calls.length, 0), finalOnly = step.callIndex === 3 || used >= 8;
+  const completed = step.rounds.flatMap((r) => r.results), ids = completed.map((r) => r.call.id);
+  if (finalOnly && ids.length === 0) throw new AgentProblem("input");
+  const finalMessages = [{ role: "system", content: agentPrompt }, { role: "user", content: JSON.stringify({ task: step.task, scope: { projectId: step.projectId, sourceBundleSha256: step.sourceBundleSha256, revision: step.revision }, selected: { frameId: step.frameId, objectId: step.objectId }, completedEvidence: completed }) }];
+  const body = {
+    model: "openai/gpt-oss-20b",
+    temperature: 0,
+    max_completion_tokens: 700,
+    reasoning_effort: "low",
+    stream: false,
+    parallel_tool_calls: finalOnly ? void 0 : false,
+    tool_choice: finalOnly ? void 0 : "auto",
+    tools: finalOnly ? void 0 : toolsDefinition(),
+    response_format: finalOnly ? { type: "json_schema", json_schema: { name: "labelxr_assessment", strict: true, schema: { type: "object", properties: { assessment: { type: "string", enum: ["review-measurements", "cannot-suggest-safely", "no-change-recommended", "needs-user-review"] }, evidenceIds: { type: "array", items: { type: "string", enum: ids } } }, required: ["assessment", "evidenceIds"], additionalProperties: false } } } : { type: "json_object" },
+    messages: finalOnly ? finalMessages : messages2
+  };
   if (JSON.stringify(body).length > 6e4) throw new AgentProblem("input");
   return body;
 }
 function parseProvider(value, step, context) {
-  const root = z2.object({ choices: z2.array(z2.object({ finish_reason: z2.string(), message: z2.object({ content: z2.string().nullable().optional(), tool_calls: z2.array(z2.object({ id: id2, type: z2.literal("function"), function: z2.strictObject({ name: z2.string(), arguments: z2.string().max(2e3) }) }).strict()).max(8).optional() }) })).length(1) }).parse(value), choice = root.choices[0], calls = choice.message.tool_calls ?? [], scope = { projectId: step.projectId, sourceBundleSha256: step.sourceBundleSha256, revision: step.revision, turnId: step.turnId, callIndex: step.callIndex }, prior = step.rounds.flatMap((r) => r.calls);
+  const envelope = z2.object({ choices: z2.array(z2.object({ finish_reason: z2.string(), message: z2.object({ content: z2.string().nullable().optional(), tool_calls: z2.array(z2.object({ id: id2, type: z2.literal("function"), function: z2.strictObject({ name: z2.string(), arguments: z2.string().max(2e3) }) }).strict()).max(8).optional() }) })).length(1) }).safeParse(value);
+  if (!envelope.success) throw new AgentProblem("response", "provider-envelope");
+  const choice = envelope.data.choices[0], calls = choice.message.tool_calls ?? [], scope = { projectId: step.projectId, sourceBundleSha256: step.sourceBundleSha256, revision: step.revision, turnId: step.turnId, callIndex: step.callIndex }, prior = step.rounds.flatMap((r) => r.calls);
+  const finishFailure = () => new AgentProblem("response", choice.finish_reason === "length" ? "finish-length" : choice.finish_reason === "content_filter" ? "finish-content-filter" : "finish-reason");
   if (calls.length) {
-    if (choice.finish_reason !== "tool_calls" || step.callIndex === 3 || prior.length + calls.length > 8) throw new AgentProblem("response");
+    if (choice.finish_reason !== "tool_calls") throw finishFailure();
+    if (step.callIndex === 3 || prior.length + calls.length > 8) throw new AgentProblem("response", "tool-limit");
     const result = calls.map((c) => {
-      const call = toolCallSchema.parse({ id: c.id, name: c.function.name, args: JSON.parse(c.function.arguments) });
-      knownCall(call, context);
-      return call;
+      let args;
+      try {
+        args = JSON.parse(c.function.arguments);
+      } catch {
+        throw new AgentProblem("response", "tool-json");
+      }
+      const parsed = toolCallSchema.safeParse({ id: c.id, name: c.function.name, args });
+      if (!parsed.success) throw new AgentProblem("response", "tool-schema");
+      try {
+        knownCall(parsed.data, context);
+      } catch {
+        throw new AgentProblem("response", "tool-target");
+      }
+      return parsed.data;
     });
-    if (new Set([...prior, ...result].map((c) => c.id)).size !== prior.length + result.length) throw new AgentProblem("response");
+    if (new Set([...prior, ...result].map((c) => c.id)).size !== prior.length + result.length) throw new AgentProblem("response", "tool-duplicate");
     return responseSchema.parse({ ...scope, kind: "tools", calls: result });
   }
-  if (choice.finish_reason !== "stop" || typeof choice.message.content !== "string") throw new AgentProblem("response");
-  const answer = assessmentSchema.parse(JSON.parse(choice.message.content));
-  if (new Set(answer.evidenceIds).size !== answer.evidenceIds.length || answer.evidenceIds.some((id3) => !prior.some((c) => c.id === id3))) throw new AgentProblem("response");
-  return responseSchema.parse({ ...scope, kind: "final", answer });
+  if (choice.finish_reason !== "stop" || typeof choice.message.content !== "string") throw finishFailure();
+  let content;
+  try {
+    content = JSON.parse(choice.message.content);
+  } catch {
+    throw new AgentProblem("response", "final-json");
+  }
+  const answer = assessmentSchema.safeParse(content);
+  if (!answer.success) throw new AgentProblem("response", "final-schema");
+  if (new Set(answer.data.evidenceIds).size !== answer.data.evidenceIds.length || answer.data.evidenceIds.some((id3) => !prior.some((c) => c.id === id3))) throw new AgentProblem("response", "final-evidence");
+  return responseSchema.parse({ ...scope, kind: "final", answer: answer.data });
 }
 function createAgentHandler(options) {
   const origin = approvedOrigin(options.origin);
@@ -360,14 +398,14 @@ function createAgentHandler(options) {
       let out;
       try {
         out = parseProvider(response, input, fresh);
-      } catch {
-        throw new AgentProblem("response");
+      } catch (error) {
+        throw error instanceof AgentProblem && error.code === "response" ? error : new AgentProblem("response", "provider-envelope");
       }
       return jsonResponse(request, origin, rid, out);
     } catch (error) {
       if (error instanceof AgentProblem) {
         const base = jsonResponse(request, origin, rid, null);
-        return new Response(JSON.stringify({ error: { code: "ai_" + error.code, message: error.message }, requestId: rid }), { status: error.status, headers: base.headers });
+        return new Response(JSON.stringify({ error: { code: "ai_" + error.code, message: error.message }, requestId: rid, ...error.code === "response" && error.responseReason ? { diagnostic: { reason: error.responseReason } } : {} }), { status: error.status, headers: base.headers });
       }
       return problemResponse(request, origin, rid, error instanceof HttpProblem ? error : new HttpProblem("projectUnavailable"));
     }

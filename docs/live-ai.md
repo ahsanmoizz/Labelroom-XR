@@ -12,3 +12,14 @@ Each turn allows at most three model calls and eight tool calls. Existing databa
 Server-only variables: `AI_ENABLED=false`, `GROQ_API_KEY`, `GROQ_MODEL=openai/gpt-oss-20b`, plus the existing Supabase public/server key and `ALLOWED_ORIGIN` configuration. Never place the model or server key in a `VITE_` variable, source, report or chat. Build/verify the generated endpoint with `node scripts/build-agent.mjs --write` / `--verify`. Apply `202611060001_ai_context.sql` only after a separately reviewed cloud preflight. It adds the caller-owned consent/context function and changes exactly one deterministic stale budget signal from `40001` to `PT409`, preserving the budget function owner, ACL and all other body text. Do not rerun an already applied migration or bypass its guards.
 
 Remaining live acceptance: deployment source provenance, real-model valid/invalid tool turns, consent enable/revoke, ownership and stale revision handling, budget/replay/failure handling, no auto-edit proof, second-account API security and device/session cleanup. Existing revision-seven synthetic project must remain preserved unless a later exact test explicitly authorizes a bounded change.
+
+
+## Response validation and failed-test recovery
+
+The tool stages request JSON object mode. The final-only stage sends no tool definitions, tool choice, parallel-tool option or tool-role transcript; it uses a strict assessment schema with evidence IDs limited to completed calls. The server still validates the assessment enum, nonempty bounded citations, uniqueness and actual completed evidence. Truncation, malformed replies and unknown references remain errors; no automatic provider retry or label edit is added. Existing limits remain three model requests, eight tools and 700 completion tokens per request.
+
+A rejected model reply returns the existing ai_response code and one fixed diagnostic reason, such as finish-length, final-json, final-schema or final-evidence. No model prose, reasoning, credential, measurement body or upstream error is added to the diagnostic. Manual review stays available. The earlier Step146 reply was not retained; its precise rejection reason cannot be reconstructed from the old generic error.
+
+The recovery harness binds its cached transport to the current report object. Its counters and failed-step diagnostic therefore survive a restored workspace receipt without resetting the independent dispatch/replay limits. The two stopped Step146 folders and reports remain frozen evidence. This candidate has no live acceptance claim.
+
+Provider references reviewed 2026-11-06: https://console.groq.com/docs/structured-outputs and https://console.groq.com/docs/tool-use/overview . Strict schema mode is confined to a request without tool use.
