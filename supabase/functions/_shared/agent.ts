@@ -22,7 +22,7 @@ export function providerRequest(step:AiStep,context:AiContext){
  const finalMessages=[{role:'system',content:agentPrompt},{role:'user',content:JSON.stringify({task:step.task,scope:{projectId:step.projectId,sourceBundleSha256:step.sourceBundleSha256,revision:step.revision},selected:{frameId:step.frameId,objectId:step.objectId},completedEvidence:completed})}];
  const body={model:'openai/gpt-oss-20b',temperature:0,max_completion_tokens:700,reasoning_effort:'low',stream:false,
   parallel_tool_calls:finalOnly?undefined:false,tool_choice:finalOnly?undefined:'auto',tools:finalOnly?undefined:toolsDefinition(),
-  response_format:finalOnly?{type:'json_schema',json_schema:{name:'labelxr_assessment',strict:true,schema:{type:'object',properties:{assessment:{type:'string',enum:['review-measurements','cannot-suggest-safely','no-change-recommended','needs-user-review']},evidenceIds:{type:'array',items:{type:'string',enum:ids}}},required:['assessment','evidenceIds'],additionalProperties:false}}}:{type:'json_object'},
+  response_format:finalOnly?{type:'json_schema',json_schema:{name:'labelxr_assessment',strict:true,schema:{type:'object',properties:{assessment:{type:'string',enum:['review-measurements','cannot-suggest-safely','no-change-recommended','needs-user-review']},evidenceIds:{type:'array',items:{type:'string',enum:ids}}},required:['assessment','evidenceIds'],additionalProperties:false}}}:undefined,
   messages:finalOnly?finalMessages:messages};
  if(JSON.stringify(body).length>60000)throw new AgentProblem('input');return body;
 }

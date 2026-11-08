@@ -315,7 +315,7 @@ function providerRequest(step, context) {
     parallel_tool_calls: finalOnly ? void 0 : false,
     tool_choice: finalOnly ? void 0 : "auto",
     tools: finalOnly ? void 0 : toolsDefinition(),
-    response_format: finalOnly ? { type: "json_schema", json_schema: { name: "labelxr_assessment", strict: true, schema: { type: "object", properties: { assessment: { type: "string", enum: ["review-measurements", "cannot-suggest-safely", "no-change-recommended", "needs-user-review"] }, evidenceIds: { type: "array", items: { type: "string", enum: ids } } }, required: ["assessment", "evidenceIds"], additionalProperties: false } } } : { type: "json_object" },
+    response_format: finalOnly ? { type: "json_schema", json_schema: { name: "labelxr_assessment", strict: true, schema: { type: "object", properties: { assessment: { type: "string", enum: ["review-measurements", "cannot-suggest-safely", "no-change-recommended", "needs-user-review"] }, evidenceIds: { type: "array", items: { type: "string", enum: ids } } }, required: ["assessment", "evidenceIds"], additionalProperties: false } } } : void 0,
     messages: finalOnly ? finalMessages : messages2
   };
   if (JSON.stringify(body).length > 6e4) throw new AgentProblem("input");

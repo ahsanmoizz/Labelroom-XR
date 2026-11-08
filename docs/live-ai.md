@@ -16,10 +16,12 @@ Remaining live acceptance: deployment source provenance, real-model valid/invali
 
 ## Response validation and failed-test recovery
 
-The tool stages request JSON object mode. The final-only stage sends no tool definitions, tool choice, parallel-tool option or tool-role transcript; it uses a strict assessment schema with evidence IDs limited to completed calls. The server still validates the assessment enum, nonempty bounded citations, uniqueness and actual completed evidence. Truncation, malformed replies and unknown references remain errors; no automatic provider retry or label edit is added. Existing limits remain three model requests, eight tools and 700 completion tokens per request.
+Tool stages omit `response_format` entirely because Groq rejects JSON mode combined with tool/function calling. Tool arguments and any early final answer still pass the existing strict server validators. The final-only stage sends no tool definitions, tool choice, parallel-tool option or tool-role transcript; it uses a strict assessment schema with evidence IDs limited to completed calls. The server still validates the assessment enum, nonempty bounded citations, uniqueness and actual completed evidence. Truncation, malformed replies and unknown references remain errors; no automatic provider retry or label edit is added. Existing limits remain three model requests, eight tools and 700 completion tokens per request.
 
 A rejected model reply returns the existing ai_response code and one fixed diagnostic reason, such as finish-length, final-json, final-schema or final-evidence. No model prose, reasoning, credential, measurement body or upstream error is added to the diagnostic. Manual review stays available. The earlier Step146 reply was not retained; its precise rejection reason cannot be reconstructed from the old generic error.
 
 The recovery harness binds its cached transport to the current report object. Its counters and failed-step diagnostic therefore survive a restored workspace receipt without resetting the independent dispatch/replay limits. The two stopped Step146 folders and reports remain frozen evidence. This candidate has no live acceptance claim.
 
 Provider references reviewed 2026-11-06: https://console.groq.com/docs/structured-outputs and https://console.groq.com/docs/tool-use/overview . Strict schema mode is confined to a request without tool use.
+
+Step151R provider log confirmed HTTP400 invalid_request_error, parameter response_format: json mode cannot be combined with tool/function calling. This is a request-format repair; no API-key replacement, model switch, SQL change or extra provider retry is required. Existing live acceptance remains pending.
