@@ -35,13 +35,15 @@ export function mountLoginPanel(root: HTMLElement, auth: Account, challenge: Cha
   const verify = element('button', 'Verify code'); verify.type = 'submit'; codeLabel.appendChild(code); codeForm.append(codeLabel, verify);
   const security = element('p'), retry = element('button', 'Retry security check'); retry.type = 'button';
   const guest = element('button', 'Enter demo'); guest.type = 'button';
-  const notice = element('p', 'Demo data resets when you sign out. Sign out before switching to a permanent account.');
+  const notice = element('p', 'Demo access lasts 24 hours. Export your work before signing out; signing out ends this browser’s guest access. Sign out before switching to a permanent account.');
   const out = element('button', 'Sign out'); out.type = 'button';
   const status = element('p'); status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite');
   const error = element('p'); error.setAttribute('role', 'alert'); error.style.color = '#ffd5c2';
   for (const input of [email, code]) input.style.cssText = 'box-sizing:border-box;display:block;width:100%;padding:12px;margin:6px 0 12px;border:1px solid #65748c;border-radius:8px;background:#fff;color:#101b2c;font:inherit';
   for (const button of [send, verify, guest, retry, out]) button.style.cssText = 'min-height:44px;padding:10px 16px;margin:4px 8px 4px 0;border:1px solid #849dc4;border-radius:8px;font:inherit;cursor:pointer';
-  card.append(title, intro, emailForm, codeForm, options.captchaElement, security, retry, guest, notice, out, status, error); root.replaceChildren(card);
+  const support=element('p');
+  for(const [label,path] of [['Help','/help.html'],['Privacy and data','/privacy.html']]){const link=element('a',label);link.href=path;link.target='_blank';link.rel='noopener';link.style.cssText='color:#82e1d5;margin-right:16px';support.append(link);}
+  card.append(title, intro, emailForm, codeForm, options.captchaElement, security, retry, guest, notice, out, status, error, support); root.replaceChildren(card);
   let disposed = false, pending = false, localError = '';
   let previousPhase: ReturnType<Account['getState']>['phase'] | null = null;
   function render() {

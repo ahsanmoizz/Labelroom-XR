@@ -1,0 +1,65 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import {pathToFileURL} from 'node:url';
+import {createHash} from 'node:crypto';
+import {unzipSync} from 'fflate';
+const [runtime,output]=process.argv.slice(2);
+assert(path.isAbsolute(runtime??'')&&path.isAbsolute(output??''),'Pass absolute PGlite package and new external report paths.');
+assert(!fs.existsSync(output)&&!output.startsWith(process.cwd()+path.sep));
+const hash=b=>createHash('sha256').update(b).digest('hex');
+const core=fs.readFileSync('tests/sql/core.mjs','utf8');
+const fixture=JSON.parse(/^const fixture=(.+);$/m.exec(core)[1]);
+const pins=JSON.parse(/^const runtimeFiles=(.+);$/m.exec(core)[1]);
+for(const [file,pin] of Object.entries(pins))assert.equal(hash(fs.readFileSync(path.join(runtime,file))),pin);
+const {PGlite}=await import(pathToFileURL(path.join(runtime,'dist/index.js')).href);
+const db=new PGlite(),cases=[];
+const a='11111111-1111-4111-8111-111111111111',b='22222222-2222-4222-8222-222222222222',member='33333333-3333-4333-8333-333333333333';
+const rid=n=>'99999999-9999-4999-8999-'+String(n).padStart(12,'0');
+async function role(role,owner,sql,params=[]){return db.transaction(async t=>{assert(['authenticated','anon','service_role'].includes(role));await t.exec('SET LOCAL ROLE '+role);await t.query("select set_config('request.jwt.claim.sub',$1,true)",[owner]);return t.query(sql,params);});}
+const service=(sql,params=[])=>role('service_role','',sql,params);
+const rpc=async(name,params)=>{const marks=params.map((_,i)=>'$'+(i+1)).join(',');return(await service('select public.'+name+'('+marks+') as value',params)).rows[0].value;};
+const reject=(work,code)=>assert.rejects(work,{code});
+async function test(name,fn){await fn();cases.push(name);}
+async function sqlClock(ids){await db.exec('ALTER TABLE public.projects DISABLE TRIGGER labelroom_project_guard');try{await db.query("update public.projects set created_at=now()-interval '25 hours',expires_at=case when kind='demo' then now()-interval '1 hour' else null end where id=any($1::uuid[])",[ids]);}finally{await db.exec('ALTER TABLE public.projects ENABLE TRIGGER labelroom_project_guard');}}
+try{
+ await db.waitReady;await db.exec(fixture);
+ for(const name of fs.readdirSync('supabase/migrations').filter(x=>x.endsWith('.sql')).sort())await db.exec(fs.readFileSync('supabase/migrations/'+name,'utf8'));
+ await db.query('insert into auth.users values($1,true),($2,true),($3,false)',[a,b,member]);
+ const zip=unzipSync(fs.readFileSync('fixtures/contract-example.zip'));
+ const manifest=JSON.parse(new TextDecoder().decode(zip['manifest.json'])),labels=JSON.parse(new TextDecoder().decode(zip['labels.openlabel.json']));
+ const frame=manifest.frames[0].id,object=Object.keys(labels.openlabel.frames[frame].objects)[0];
+ const original=labels.openlabel.frames[frame].objects[object].object_data.cuboid[0].val;
+ let p=await rpc('labelroom_demo_reserve',[a]);const id=p.id;
+ await service("insert into storage.objects(bucket_id,name) values('project-data',$1)",[p.storage_prefix+'/original.lrx.zip']);
+ p=await rpc('labelroom_demo_finalize',[a,id,manifest,labels]);
+ const command={projectId:id,requestId:rid(1),baseRevision:0,operation:'updateCuboid',frameId:frame,objectId:object,reason:'other',before:original,after:[...original]};command.after[0]+=0.1;
+ let receipt;
+ await test('a real guest role can commit an explicit revision-one correction',async()=>{receipt=(await role('authenticated',a,'select public.commit_review($1) as value',[command])).rows[0].value;assert.equal(receipt.revision,1);assert.equal(receipt.labels.openlabel.frames[frame].objects[object].object_data.cuboid[0].val[0],command.after[0]);});
+ await test('retry is idempotent and a stale new request conflicts',async()=>{const again=(await role('authenticated',a,'select public.commit_review($1) as value',[command])).rows[0].value;assert.deepEqual(again,receipt);await reject(role('authenticated',a,'select public.commit_review($1)',[{...command,requestId:rid(2)}]),'PT409');});
+ await test('another guest cannot read or mutate the project',async()=>{assert.equal((await role('authenticated',b,'select * from public.projects where id=$1',[id])).rows.length,0);await reject(role('authenticated',b,'select public.commit_review($1)',[{...command,baseRevision:1,requestId:rid(3)}]),'42501');});
+ await test('guest undo restores the exact original labels without changing the immutable source',async()=>{const undo={projectId:id,requestId:rid(4),baseRevision:1,operation:'undo',frameId:frame,objectId:object,reason:'other',undoOf:command.requestId};const value=(await role('authenticated',a,'select public.commit_review($1) as value',[undo])).rows[0].value;assert.equal(value.revision,2);assert.deepEqual(value.labels,labels);const current=(await service('select source_label_doc,current_revision from public.projects where id=$1',[id])).rows[0];assert.deepEqual(current.source_label_doc,labels);assert.equal(current.current_revision,2);});
+ const functions=['labelroom_demo_begin_reset(uuid,uuid)','labelroom_demo_finish_reset(uuid,uuid)','labelroom_cleanup_candidates(integer)','labelroom_cleanup_begin(uuid)','labelroom_cleanup_finish(uuid)'];
+ await test('all reset and cleanup RPCs are service-only with fixed search paths',async()=>{for(const fn of functions){const r=(await db.query("select has_function_privilege('authenticated',$1,'execute') as caller,has_function_privilege('anon',$1,'execute') as anonymous,has_function_privilege('service_role',$1,'execute') as service,proconfig from pg_proc where oid=$1::regprocedure",['public.'+fn])).rows[0];assert.equal(r.caller,false);assert.equal(r.anonymous,false);assert.equal(r.service,true);assert(r.proconfig.includes('search_path=""'));}});
+ await test('reset refuses another guest and permanent account',async()=>{await reject(rpc('labelroom_demo_begin_reset',[b,id]),'42501');await reject(rpc('labelroom_demo_begin_reset',[member,id]),'42501');});
+ await test('reset hides the project before removing storage and refuses premature finish',async()=>{const retiring=await rpc('labelroom_demo_begin_reset',[a,id]);assert.equal(retiring.status,'deleting');assert.equal((await role('authenticated',a,'select * from public.projects where id=$1',[id])).rows.length,0);await reject(rpc('labelroom_demo_finish_reset',[a,id]),'55000');});
+ await test('completed reset removes versions and audit and tolerates a lost finish acknowledgement',async()=>{await service("delete from storage.objects where bucket_id='project-data' and name=$1",[p.storage_prefix+'/original.lrx.zip']);assert.deepEqual(await rpc('labelroom_demo_finish_reset',[a,id]),{id,deleted:true});assert.deepEqual(await rpc('labelroom_demo_finish_reset',[a,id]),{id,deleted:true});for(const table of ['projects','label_versions','mutations']){const key=table==='projects'?'id':'project_id';assert.equal((await service('select * from public.'+table+' where '+key+'=$1',[id])).rows.length,0);}});
+ await test('the same guest can reserve only one fresh revision-zero demo after reset',async()=>{const fresh=await rpc('labelroom_demo_reserve',[a]);assert.notEqual(fresh.id,id);assert.equal(fresh.current_revision,0);assert.equal((await rpc('labelroom_demo_reserve',[a])).id,fresh.id);});
+ await test('reset without a project ID cannot discard an unexpired active demo',async()=>{await reject(rpc('labelroom_demo_begin_reset',[a,null]),'42501');});
+ const expired=await rpc('labelroom_demo_reserve',[b]);await service("insert into storage.objects(bucket_id,name) values('project-data',$1)",[expired.storage_prefix+'/original.lrx.zip']);await rpc('labelroom_demo_finalize',[b,expired.id,manifest,labels]);
+ const privateId='cccccccc-cccc-4ccc-8ccc-cccccccccccc',stagedId='dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+ await rpc('labelroom_project_reserve',[member,privateId,'a'.repeat(64),100]);await service("insert into storage.objects(bucket_id,name) values('project-data',$1)",[member+'/'+privateId+'/original.lrx.zip']);await rpc('labelroom_project_finalize',[member,privateId,'a'.repeat(64),100,manifest,labels]);
+ await rpc('labelroom_project_reserve',[member,stagedId,'b'.repeat(64),100]);
+ const freshStage='eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';await rpc('labelroom_project_reserve',[member,freshStage,'c'.repeat(64),100]);
+ await test('a live owned staging upload still passes the coordinated storage gate',async()=>{await role('authenticated',member,"insert into storage.objects(bucket_id,name) values('project-data',$1)",[member+'/'+freshStage+'/original.lrx.zip']);});
+ await sqlClock([expired.id,stagedId]);
+ await test('expired staging cannot publish a late original through Storage RLS',async()=>{await reject(role('authenticated',member,"insert into storage.objects(bucket_id,name) values('project-data',$1)",[member+'/'+stagedId+'/original.lrx.zip']),'42501');});
+ await test('an expired guest can restart after refresh without remembering its old project ID',async()=>{const retiring=await rpc('labelroom_demo_begin_reset',[b,null]);assert.equal(retiring.id,expired.id);assert.equal(retiring.owner_id,b);assert.equal(retiring.status,'deleting');});
+ await test('cleanup selects expired guest data and abandoned staging only',async()=>{const candidates=await rpc('labelroom_cleanup_candidates',[25]);assert.deepEqual(new Set(candidates.map(x=>x.id)),new Set([expired.id,stagedId]));});
+ await test('cleanup bounds and ready private project protection are enforced by SQL',async()=>{await reject(rpc('labelroom_cleanup_candidates',[26]),'22023');await reject(rpc('labelroom_cleanup_begin',[privateId]),'42501');});
+ await test('an expired guest cannot read its row or original while cleanup is pending',async()=>{assert.equal((await role('authenticated',b,'select * from public.projects where id=$1',[expired.id])).rows.length,0);assert.equal((await role('authenticated',b,"select * from storage.objects where bucket_id='project-data'")).rows.length,0);});
+ await test('cleanup refuses to finish while any object remains under the exact prefix',async()=>{await rpc('labelroom_cleanup_begin',[expired.id]);await reject(rpc('labelroom_cleanup_finish',[expired.id]),'55000');});
+ await test('cleanup leaves unrelated private projects and shared demo seed untouched',async()=>{await service("insert into storage.objects(bucket_id,name) values('project-data','demo-seeds/pandaset-v1/original.lrx.zip')");await service("delete from storage.objects where bucket_id='project-data' and name=$1",[expired.storage_prefix+'/original.lrx.zip']);await rpc('labelroom_cleanup_finish',[expired.id]);await rpc('labelroom_cleanup_begin',[stagedId]);await rpc('labelroom_cleanup_finish',[stagedId]);assert.equal((await service('select id from public.projects where id=$1',[privateId])).rows.length,1);assert.equal((await service("select name from storage.objects where name='demo-seeds/pandaset-v1/original.lrx.zip'")).rows.length,1);});
+ const result={schema:'labelxr-guest-release-sql/v1',passed:true,count:cases.length,cases,scope:'Actual migrations and PostgreSQL permissions/transactions using pinned PGlite 0.3.14 and synthetic Supabase auth/storage metadata. No live cloud, native object-store, concurrency or headset acceptance.'};
+ fs.writeFileSync(output,JSON.stringify(result,null,2)+'\n',{flag:'wx'});console.log(JSON.stringify(result));
+}finally{await db.close();}

@@ -33,6 +33,12 @@ export interface MemberReviewWorkspaceOptions {
 }
 /** The verified account host supplies the owner and abort signal; both services reverify the caller. */
 export function mountMemberReviewWorkspace(root:HTMLElement,options:MemberReviewWorkspaceOptions){
- const{client,config,original}=options,scope={ownerId:options.ownerId,projectId:options.projectId,sourceBundleSha256:original.bundleSha256},reviews=createReviewService(createSupabaseReviewSessions(client,config)),snapshots=createReviewSnapshotService(createSupabaseReviewSnapshotSessions(client,config));
+ return mountSavedReviewWorkspace(root,options,'private');
+}
+export function mountGuestReviewWorkspace(root:HTMLElement,options:MemberReviewWorkspaceOptions){
+ return mountSavedReviewWorkspace(root,options,'demo');
+}
+function mountSavedReviewWorkspace(root:HTMLElement,options:MemberReviewWorkspaceOptions,kind:'private'|'demo'){
+ const{client,config,original}=options,scope={ownerId:options.ownerId,projectId:options.projectId,sourceBundleSha256:original.bundleSha256},reviews=createReviewService(createSupabaseReviewSessions(client,config)),snapshots=createReviewSnapshotService(createSupabaseReviewSnapshotSessions(client,config,globalThis.fetch,kind));
  return mountReviewWorkspace(root,{scope,original,signal:options.signal,cache:options.cache??createIndexedDbDraftCache(),load:signal=>snapshots.load(scope,original,signal),audit:(snapshot,signal)=>snapshots.audit(snapshot,signal),commit:(bytes,context,signal)=>reviews.commit(bytes,context,signal),phase:options.phase,present:options.present,preview:options.preview,focus:options.focus,download:options.download,agent:{async request(input,signal){const {createAgentService}=await import('../services/agent');return createAgentService(client,config,options.ownerId).request(input,signal)}},analysis:options.analysis??createReviewAnalysisClient()});
 }

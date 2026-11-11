@@ -45,7 +45,7 @@ export interface VerifiedJsonOptions {
   bodyTimeoutMs?: number;
   authTimeoutMs?: number;
 }
-/** Shared browser endpoint boundary; deployment must also retain gateway verify_jwt=true. */
+/** Shared browser boundary: Auth getUser verifies every caller before an operation. */
 export function createVerifiedJsonHandler(options: VerifiedJsonOptions,
   operation: (identity: Readonly<VerifiedIdentity>, body: Record<string, unknown>) => Promise<unknown>) {
   const origin = approvedOrigin(options.origin), access = options.access, client = options.client;
