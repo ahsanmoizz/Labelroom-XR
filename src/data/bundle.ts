@@ -28,7 +28,7 @@ export interface BundleSource {
 }
 export type BundleErrorCode = 'INPUT' | 'CRYPTO' | 'ZIP' | 'MANIFEST' | 'MEMBER_SET' | 'HASH' | 'RIGHTS' | 'PCD' | 'LABELS' | 'HISTORICAL_JSON' | 'FRAME';
 export class BundleLoadError extends Error {
-  readonly name = 'BundleLoadError';
+  override readonly name = 'BundleLoadError';
   constructor(readonly code: BundleErrorCode, readonly filePath: string,
     readonly memberPath: string | null, readonly field: string,
     readonly frameId: string | null, readonly objectId: string | null,

@@ -1,0 +1,62 @@
+{
+  "schema": "labelxr-completion-candidate-validation/v1",
+  "baseCommit": "9ff3b981ddf86ed101574a1e7fbc2179ae3e458b",
+  "candidateBranch": "deadline/complete-guest-demo",
+  "localValidation": {
+    "typecheck": "passed",
+    "unit": {
+      "passed": 952,
+      "failed": 0,
+      "skipped": 1,
+      "skipReason": "Native pinned 11,404,047-byte PandaSet seed remains on operator PC; supplied desktop/staging load evidence is recorded separately."
+    },
+    "sql": {
+      "core": 108,
+      "demoProvision": 9,
+      "guestReviewResetCleanup": 18,
+      "runtime": "Pinned PGlite 0.3.14, synthetic Supabase auth/storage metadata; actual PostgreSQL transactions and RLS"
+    },
+    "generatedFunctionBundles": "all five verified against reviewed sources",
+    "denoSourceCheck": "All five function source entries passed",
+    "productionBuild": "passed with guest flag enabled and public fixture values; build output is not a deployable authenticated environment",
+    "contractChecks": "passed",
+    "npmProductionAudit": {
+      "info": 0,
+      "low": 0,
+      "moderate": 0,
+      "high": 0,
+      "critical": 0,
+      "total": 0
+    },
+    "typeOnlyCompatibilityEdits": "Six parser/domain files compile to byte-identical runtime code before and after override annotations"
+  },
+  "blockedVerification": {
+    "nativeBrowserRegression": "Runner compiled, but local Chromium launch failed: socket() Operation not permitted. No browser cases claimed for this run."
+  },
+  "pendingAcceptance": [
+    "Current staging guest A/reopen/guest B evidence",
+    "Apply and verify candidate migrations/functions in staging",
+    "Live guest edit/save/undo/export/reset/expiry/cleanup",
+    "Live security/performance advisors after schema application",
+    "Full live AI usefulness/rehearsal",
+    "Physical Quest hands and performance",
+    "Three intended-reviewer sessions",
+    "Production release rehearsal/public judge access",
+    "Eligibility, video, final form and submission receipt"
+  ],
+  "securityPatch": {
+    "package": "zod",
+    "before": "4.6.5",
+    "after": "4.6.7",
+    "advisory": "GHSA-mrhx-c7xc-m3w5",
+    "allRelevantDenoImportMapsPatched": true
+  },
+  "cloudChangesPerformed": false,
+  "fullProductAccepted": false,
+  "reportSha256": {
+    "guest-release-sql-accepted.json": "32a5d24a2c2209ac67286ddabd1916371d39e5e1545e36536e49421ff7c385f6",
+    "core-sql-final.json": "00c456463cb9fad03430f11640a550c16707fc13ff296d66bb5740d059692f77",
+    "npm-audit-patched.json": "7f67e4e8371a68ebe123cd7ba4870e9ddfcd693a51737f1a23442ad89f835626",
+    "unit-completion.json": "d0b66dd430a78113f56bde6714a3bf0f797b4cb7b1905cce7ec6f276e39ac897"
+  }
+}

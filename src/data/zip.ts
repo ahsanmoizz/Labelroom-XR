@@ -3,7 +3,7 @@ import { LIMITS } from '../domain/limits';
 
 export type ZipErrorCode = 'INPUT' | 'COMPRESSED_LIMIT' | 'EXPANDED_LIMIT' | 'MEMBER_LIMIT' | 'PATH' | 'FORMAT' | 'UNSUPPORTED' | 'SIZE' | 'CRC' | 'DEFLATE' | 'MISSING';
 export class ZipParseError extends Error {
-  readonly name = 'ZipParseError';
+  override readonly name = 'ZipParseError';
   constructor(readonly code: ZipErrorCode, readonly filePath: string,
     readonly memberPath: string | null, detail: string) {
     super(`${filePath}${memberPath === null ? '' : ' | ' + memberPath}: ${detail}`);
