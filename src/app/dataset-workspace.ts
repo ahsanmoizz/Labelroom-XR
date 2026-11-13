@@ -87,7 +87,7 @@ export function createDatasetWorkspace(load: () => Promise<WorldFactory>, adapte
       panel = mountDatasetPanel(overlay, { createView: (source, display) => (adapters.createView || createReviewView)(world, display || source), load: adapters.load, privateProjects: context?.user.kind === 'member' && !!adapters.projects });
       menus = mountWorkspaceTools(overlay, panel.element, doc.getElementById?.('account-container') || undefined, context?.user.kind === 'guest');
       const preview = panel;
-      if (context && typeof world.launchXR === 'function') xrEntry = mountXrEntry(overlay, world as Parameters<typeof mountXrEntry>[1], signal, () => !!preview.current());
+      if (context && typeof world.launchXR === 'function') xrEntry = mountXrEntry(menus.element, world as Parameters<typeof mountXrEntry>[1], signal, () => !!preview.current());
       function startReview(result: OpenedProject) {
         closeReview();
         if (!adapters.review || !context || closed || signal.aborted) return;

@@ -246,9 +246,9 @@ noscript { display: block; padding: 24px; }
 .account-restoring { max-width: 32rem; padding: 28px; margin: 10vh auto; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; }
 .account-restoring h1 { font-size: 1.5rem; }
 #account-container[data-account-state="restoring"] { position: fixed; inset: 0; width: auto; max-height: none; margin: 0; padding: 24px; overflow: auto; background: #0b141e; }
-.workspace-xr-entry { position: absolute; z-index: 25; top: 12px; left: 50%; transform: translateX(-50%); max-width: calc(100% - 24px); pointer-events: auto; }
-.workspace-xr-entry button { min-height: 48px; }
-.workspace-xr-entry p { max-width: 22rem; padding: 8px 12px; background: #10212e; border-radius: 8px; font-size: 14px; }
+.workspace-xr-entry { display: flex; min-width: 0; pointer-events: auto; }
+.workspace-xr-entry button { min-height: 48px; width: 100%; }
+.workspace-xr-entry p { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; padding: 0; margin: 0; }
 .account-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
 .account-brand > img { display: block; flex: 0 0 42px; width: 42px; height: 42px; }
 .account-brand > div { min-width: 0; }

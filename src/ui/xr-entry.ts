@@ -8,7 +8,8 @@ export function mountXrEntry(root: HTMLElement, world: XrWorld, signal: AbortSig
   const section = doc.createElement('section'), button = doc.createElement('button'), status = doc.createElement('p');
   section.className = 'workspace-xr-entry'; section.setAttribute('aria-label', 'XR session');
   button.type = 'button'; button.textContent = 'Enter XR'; button.disabled = true;
-  status.setAttribute('role', 'status'); status.textContent = 'Checking XR availability…';
+  status.id = 'labelxr-xr-status'; status.setAttribute('role', 'status'); status.textContent = 'Checking XR availability…';
+  button.setAttribute('aria-describedby', status.id);
   section.append(button, status); root.append(section);
   let closed = false, supported = false, requested = false, exiting = false, failed = false, active: XRSession | undefined;
   const xr = win?.navigator.xr;
@@ -25,6 +26,7 @@ export function mountXrEntry(root: HTMLElement, world: XrWorld, signal: AbortSig
     button.textContent = session ? 'Exit XR' : busy ? 'Opening XR…' : 'Enter XR';
     button.disabled = exiting || busy || (!session && (!supported || !hasDataset()));
     status.textContent = exiting ? 'Leaving XR…' : session ? 'XR session active. Use your browser or headset control to exit.' : busy ? 'Allow XR in your browser or headset to continue.' : failed ? 'XR did not open. Try again when your headset is ready.' : !supported ? 'XR is unavailable in this browser. Desktop review is ready.' : !hasDataset() ? 'Open a dataset or the PandaSet demo to enter XR.' : 'Enter XR when you are ready. Desktop review remains available.';
+    button.title = status.textContent;
   }
   function onEnd() { active?.removeEventListener('end', onEnd); active = undefined; exiting = false; render(); }
   function enter() {
