@@ -16,6 +16,7 @@ import type { ReviewPhase } from './store';
 import type {SpatialReviewPort} from '../ui/spatial-review-port';
 import {mountSpatialReview} from '../xr/spatial-review';
 import { mountWorkspaceTools } from '../ui/workspace-tools';
+import { mountXrEntry } from '../ui/xr-entry';
 
 export interface OwnedReviewWorkspace extends WorkspaceResource {
   selectFrame?(id: string): void;
@@ -29,7 +30,7 @@ export interface ReviewPresentation {
   phase(phase: ReviewPhase): void;
 }
 
-type DatasetWorld = SceneResource & Pick<World, 'createTransformEntity'>;
+type DatasetWorld = SceneResource & Pick<World, 'createTransformEntity'> & Partial<Pick<World, 'launchXR' | 'xrSession' | 'sessionRequestPending'>>;
 type WorldFactory = (container: HTMLElement) => Promise<DatasetWorld>;
 interface WorkspaceAdapters {
   createView?: (world: DatasetWorld, source: FrameViewSource) => DatasetView;
@@ -52,6 +53,7 @@ export function createDatasetWorkspace(load: () => Promise<WorldFactory>, adapte
     let worldOwner: WorkspaceResource | undefined, panel: ReturnType<typeof mountDatasetPanel> | undefined;
     let projects: ReturnType<typeof mountPrivateProjectsPanel> | undefined;
     let menus: ReturnType<typeof mountWorkspaceTools> | undefined;
+    let xrEntry: ReturnType<typeof mountXrEntry> | undefined;
     let spatial: WorkspaceResource | undefined;
     let review: OwnedReviewWorkspace | undefined, reviewController: AbortController | undefined;
     let reviewClose: HTMLButtonElement | undefined, reviewNotice: HTMLElement | undefined;
@@ -68,7 +70,7 @@ export function createDatasetWorkspace(load: () => Promise<WorldFactory>, adapte
       if (closed) { if (cleanupFailed) throw new WorkspaceCleanupError(); return; }
       closed = true; signal.removeEventListener('abort', onAbort);
       const p = panel, w = worldOwner, privateProjects = projects; panel = undefined; worldOwner = undefined; projects = undefined;
-      for (const close of [() => menus?.dispose(), () => { unsubscribeDataset?.(); unsubscribeFrame?.(); closeReview(); }, () => privateProjects?.dispose(), () => p?.dispose(), () => w?.dispose(), () => overlay.remove(), () => scene.remove()]) {
+      for (const close of [() => xrEntry?.dispose(), () => menus?.dispose(), () => { unsubscribeDataset?.(); unsubscribeFrame?.(); closeReview(); }, () => privateProjects?.dispose(), () => p?.dispose(), () => w?.dispose(), () => overlay.remove(), () => scene.remove()]) {
         try { close(); } catch { cleanupFailed = true; }
       }
       if (cleanupFailed) throw new WorkspaceCleanupError();
@@ -85,6 +87,7 @@ export function createDatasetWorkspace(load: () => Promise<WorldFactory>, adapte
       panel = mountDatasetPanel(overlay, { createView: (source, display) => (adapters.createView || createReviewView)(world, display || source), load: adapters.load, privateProjects: context?.user.kind === 'member' && !!adapters.projects });
       menus = mountWorkspaceTools(overlay, panel.element, doc.getElementById?.('account-container') || undefined, context?.user.kind === 'guest');
       const preview = panel;
+      if (context && typeof world.launchXR === 'function') xrEntry = mountXrEntry(overlay, world as Parameters<typeof mountXrEntry>[1], signal, () => !!preview.current());
       function startReview(result: OpenedProject) {
         closeReview();
         if (!adapters.review || !context || closed || signal.aborted) return;
@@ -104,7 +107,7 @@ export function createDatasetWorkspace(load: () => Promise<WorldFactory>, adapte
           review = opened; if(opened.spatial)spatial=mountSpatialReview(world,opened.spatial,preview,doc,controller.signal); notice.remove(); reviewNotice = undefined;
         }).catch(() => { if (active()) { preview.setReviewLocked(false); notice.textContent = 'Review controls are unavailable. Close review, then reopen the project to retry.'; } });
       }
-      unsubscribeDataset = preview.subscribe(() => { if (!presenting) closeReview(); });
+      unsubscribeDataset = preview.subscribe(() => { xrEntry?.refresh(); if (!presenting) closeReview(); });
       unsubscribeFrame = preview.subscribeFrame(id => review?.selectFrame?.(id));
       const openGuestDemo = adapters.guestDemo;
       if (context?.user.kind === 'guest' && openGuestDemo) {
