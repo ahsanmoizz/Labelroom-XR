@@ -38,6 +38,7 @@ const assets=new Map([
  ['/workers/review.worker.ts',[fs.readFileSync(path.join(temp,'worker.mjs')),'text/javascript']],
  ['/fixture.mjs',[fs.readFileSync(path.join(root,'tests/integration/browser-review-fixture.mjs')),'text/javascript']],
  ['/layout-fixture.mjs',[fs.readFileSync(path.join(root,'tests/integration/layout-fixture.mjs')),'text/javascript']],
+ ['/xr-browser-fixture.mjs',[fs.readFileSync(path.join(root,'tests/integration/xr-browser-fixture.mjs')),'text/javascript']],
  ['/workspace.css',[fs.readFileSync(path.join(root,'src/ui/workspace.css')),'text/css']],
  ['/source.zip',[fs.readFileSync(path.join(root,'fixtures/contract-example.zip')),'application/zip']],
  ['/',[Buffer.from('<!doctype html><html><head><meta charset="utf-8"><title>Local review tests</title></head><body><p id="status"></p><main id="workspace"></main><script type="module" src="/fixture.mjs"></script></body></html>'),'text/html']]
