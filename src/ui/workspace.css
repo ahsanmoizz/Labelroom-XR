@@ -218,7 +218,7 @@ noscript { display: block; padding: 24px; }
   #setup-status { min-height: 100dvh; height: auto; }
   #account-container { position: relative; inset: auto; width: auto; max-height: none; margin: 16px; overflow: visible; }
   .account-card { max-width: none; }
-  #scene-container { position: relative; inset: auto; height: auto; overflow: visible; padding-bottom: 92px; }
+  #scene-container { position: relative; inset: auto; height: auto; overflow: visible; padding-bottom: 140px; }
   /* IWSDK sizes its camera and renderer to the window; retain that aspect ratio. */
   .workspace-scene { height: 100dvh; min-height: 280px; }
   .workspace-overlay { position: relative; inset: auto; padding: 16px; }
@@ -233,7 +233,7 @@ noscript { display: block; padding: 24px; }
   .action-grid { grid-template-columns: minmax(0, 1fr); }
   .review-fields { grid-template-columns: minmax(0, 1fr); gap: 12px; }
   button { padding: 12px; }
-  #scene-container { padding-bottom: 152px; }
+  #scene-container { padding-bottom: 200px; }
   .workspace-toolbar { right: 12px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .workspace-toolbar button { padding: 10px; }
   .workspace-guide { padding: 18px; }
