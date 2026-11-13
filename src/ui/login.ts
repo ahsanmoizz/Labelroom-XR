@@ -26,6 +26,10 @@ export function mountLoginPanel(root: HTMLElement, auth: Account, challenge: Cha
   const card = element('section'); card.setAttribute('aria-label', 'Account');
   card.className = 'account-card';
   const layout = element('div'); layout.className = 'account-entry-layout';
+  const restoring = element('section'); restoring.className = 'account-restoring'; restoring.setAttribute('aria-label', 'Restoring workspace');
+  const restoringTitle = element('h1', 'Restoring your workspace…');
+  const restoringText = element('p', 'Checking your saved session. Your workspace will open automatically.'); restoringText.setAttribute('role', 'status');
+  restoring.append(restoringTitle, restoringText);
   const hero = element('section'); hero.className = 'entry-story'; hero.setAttribute('aria-label', 'About LabelRoom XR');
   const eyebrow = element('p', 'A clearer view of your 3D labels'); eyebrow.className = 'entry-eyebrow';
   const headline = element('h1', 'Inspect the detail.\nKeep every decision.');
@@ -61,7 +65,7 @@ export function mountLoginPanel(root: HTMLElement, auth: Account, challenge: Cha
   send.className = verify.className = 'button-primary'; guest.className = 'button-secondary account-demo'; notice.className = 'account-demo-note'; status.className = 'account-status'; error.className = 'account-error';
   const support=element('p'); support.className='account-links';
   for(const [label,path] of [['Help','/help.html'],['Privacy and data','/privacy.html']]){const link=element('a',label);link.href=path;link.target='_blank';link.rel='noopener';support.append(link);}
-  card.append(brand, title, intro, emailForm, codeForm, divider, guest, notice, out, status, error, support); layout.append(hero, card); root.replaceChildren(layout);
+  card.append(brand, title, intro, emailForm, codeForm, divider, guest, notice, out, status, error, support); layout.append(hero, card); root.replaceChildren(restoring, layout);
   let disposed = false, pending = false, localError = '';
   let previousPhase: ReturnType<Account['getState']>['phase'] | null = null;
   function render() {
@@ -75,7 +79,9 @@ export function mountLoginPanel(root: HTMLElement, auth: Account, challenge: Cha
     }
     const captcha = challenge.getState().status;
     const signed = state.user !== null, awaiting = state.phase === 'awaiting-code' || state.phase === 'verifying-code';
-    card.setAttribute('data-connected', signed ? 'true' : 'false'); root.setAttribute('data-account-state', signed ? 'connected' : 'entry'); hero.hidden = signed; divider.hidden = signed;
+    const checking = state.phase === 'checking-session';
+    layout.hidden = checking; restoring.hidden = !checking;
+    card.setAttribute('data-connected', signed ? 'true' : 'false'); root.setAttribute('data-account-state', checking ? 'restoring' : signed ? 'connected' : 'entry'); hero.hidden = signed; divider.hidden = signed;
     title.textContent=signed?'Account':'Open your review workspace'; intro.hidden=signed;
     notice.hidden=signed && state.user?.kind!=='guest';
     const busy = pending || !['signed-out', 'awaiting-code', 'signed-in'].includes(state.phase);
@@ -91,6 +97,8 @@ export function mountLoginPanel(root: HTMLElement, auth: Account, challenge: Cha
     status.textContent = signed ? state.user?.kind === 'guest' ? 'Demo session connected.' : 'Account connected.' : awaiting ? 'Enter the code sent to your email.' : busy ? 'Checking your account…' : 'You are signed out.';
     error.textContent = localError || (state.issue ? feedback[state.issue] : '');
     if (signed || ['signing-out', 'blocked', 'disposed'].includes(state.phase)) { email.value = ''; code.value = ''; }
+    // Initial restoration never mounts a provider widget or exposes entry actions.
+    if (state.phase === 'signed-out' && prior !== state.phase && challenge.getState().status === 'idle') void challenge.start();
   }
   async function command(action: 'send' | 'verify' | 'guest' | 'out') {
     if (disposed || pending) return;
@@ -116,7 +124,7 @@ export function mountLoginPanel(root: HTMLElement, auth: Account, challenge: Cha
   guest.addEventListener('click', enter); out.addEventListener('click', leave); retry.addEventListener('click', reset);
   const unsubAuth = auth.subscribe(render), unsubChallenge = challenge.subscribe(render);
   const every = options.every ?? ((callback, milliseconds) => { const id = setInterval(callback, milliseconds); return () => clearInterval(id); });
-  const stopClock = every(render, 1000); render(); if (!auth.getState().user && !['blocked', 'disposed'].includes(auth.getState().phase)) void challenge.start();
+  const stopClock = every(render, 1000); render();
   return { dispose() {
     if (disposed) return; disposed = true; email.value = ''; code.value = '';
     stopClock(); unsubAuth(); unsubChallenge();

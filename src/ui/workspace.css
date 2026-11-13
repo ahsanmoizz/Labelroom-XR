@@ -218,7 +218,7 @@ noscript { display: block; padding: 24px; }
   #setup-status { min-height: 100dvh; height: auto; }
   #account-container { position: relative; inset: auto; width: auto; max-height: none; margin: 16px; overflow: visible; }
   .account-card { max-width: none; }
-  #scene-container { position: relative; inset: auto; height: auto; overflow: visible; padding-bottom: 92px; }
+  #scene-container { position: relative; inset: auto; height: auto; overflow: visible; padding-bottom: 140px; }
   /* IWSDK sizes its camera and renderer to the window; retain that aspect ratio. */
   .workspace-scene { height: 100dvh; min-height: 280px; }
   .workspace-overlay { position: relative; inset: auto; padding: 16px; }
@@ -233,7 +233,7 @@ noscript { display: block; padding: 24px; }
   .action-grid { grid-template-columns: minmax(0, 1fr); }
   .review-fields { grid-template-columns: minmax(0, 1fr); gap: 12px; }
   button { padding: 12px; }
-  #scene-container { padding-bottom: 152px; }
+  #scene-container { padding-bottom: 200px; }
   .workspace-toolbar { right: 12px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .workspace-toolbar button { padding: 10px; }
   .workspace-guide { padding: 18px; }
@@ -243,6 +243,12 @@ noscript { display: block; padding: 24px; }
 
 /* The entry page fills the viewport; a connected account returns to its compact workspace card. */
 .account-entry-layout { min-width: 0; }
+.account-restoring { max-width: 32rem; padding: 28px; margin: 10vh auto; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; }
+.account-restoring h1 { font-size: 1.5rem; }
+#account-container[data-account-state="restoring"] { position: fixed; inset: 0; width: auto; max-height: none; margin: 0; padding: 24px; overflow: auto; background: #0b141e; }
+.workspace-xr-entry { display: flex; min-width: 0; pointer-events: auto; }
+.workspace-xr-entry button { min-height: 48px; width: 100%; }
+.workspace-xr-entry p { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; padding: 0; margin: 0; }
 .account-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
 .account-brand > img { display: block; flex: 0 0 42px; width: 42px; height: 42px; }
 .account-brand > div { min-width: 0; }

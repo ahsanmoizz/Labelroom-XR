@@ -63,7 +63,7 @@ export function mountWorkspaceTools(root: HTMLElement, panel: HTMLElement, accou
   focus.addEventListener('click', focusScene); guideButton.addEventListener('click', openGuide);
   close.addEventListener('click', closeGuide); dialog.addEventListener('close', guideClosed);
   render();
-  return { dispose() {
+  return { element: toolbar, dispose() {
     if (closed) return; closed = true;
     controls.removeEventListener('click', toggleControls); accountButton.removeEventListener('click', toggleAccount);
     focus.removeEventListener('click', focusScene); guideButton.removeEventListener('click', openGuide);
