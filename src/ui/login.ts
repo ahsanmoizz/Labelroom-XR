@@ -24,7 +24,7 @@ export function mountLoginPanel(root: HTMLElement, auth: Account, challenge: Cha
   if (options.captchaElement.ownerDocument !== doc || options.captchaElement === root) throw new Error('Security-check container differs.');
   const element = <K extends keyof HTMLElementTagNameMap>(tag: K, text = '') => { const node = doc.createElement(tag); node.textContent = text; return node; };
   const card = element('section'); card.setAttribute('aria-label', 'Account');
-  card.style.cssText = 'box-sizing:border-box;max-width:460px;width:100%;padding:24px;margin:16px auto;background:#101b2c;color:#edf3ff;border:1px solid #33435c;border-radius:16px;font:16px/1.5 system-ui,sans-serif';
+  card.className = 'account-card';
   const title = element('h2', 'Open your review workspace');
   const intro = element('p', 'Sign in with an email code, or enter a temporary demo.');
   const emailForm = element('form'), emailLabel = element('label', 'Email address'), email = element('input');
@@ -39,10 +39,9 @@ export function mountLoginPanel(root: HTMLElement, auth: Account, challenge: Cha
   const out = element('button', 'Sign out'); out.type = 'button';
   const status = element('p'); status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite');
   const error = element('p'); error.setAttribute('role', 'alert'); error.style.color = '#ffd5c2';
-  for (const input of [email, code]) input.style.cssText = 'box-sizing:border-box;display:block;width:100%;padding:12px;margin:6px 0 12px;border:1px solid #65748c;border-radius:8px;background:#fff;color:#101b2c;font:inherit';
-  for (const button of [send, verify, guest, retry, out]) button.style.cssText = 'min-height:44px;padding:10px 16px;margin:4px 8px 4px 0;border:1px solid #849dc4;border-radius:8px;font:inherit;cursor:pointer';
-  const support=element('p');
-  for(const [label,path] of [['Help','/help.html'],['Privacy and data','/privacy.html']]){const link=element('a',label);link.href=path;link.target='_blank';link.rel='noopener';link.style.cssText='color:#82e1d5;margin-right:16px';support.append(link);}
+  send.className = verify.className = guest.className = 'button-primary';
+  const support=element('p'); support.className='account-links';
+  for(const [label,path] of [['Help','/help.html'],['Privacy and data','/privacy.html']]){const link=element('a',label);link.href=path;link.target='_blank';link.rel='noopener';support.append(link);}
   card.append(title, intro, emailForm, codeForm, options.captchaElement, security, retry, guest, notice, out, status, error, support); root.replaceChildren(card);
   let disposed = false, pending = false, localError = '';
   let previousPhase: ReturnType<Account['getState']>['phase'] | null = null;
@@ -57,9 +56,9 @@ export function mountLoginPanel(root: HTMLElement, auth: Account, challenge: Cha
     }
     const captcha = challenge.getState().status;
     const signed = state.user !== null, awaiting = state.phase === 'awaiting-code' || state.phase === 'verifying-code';
+    card.setAttribute('data-connected', signed ? 'true' : 'false');
     title.textContent=signed?'Account':'Open your review workspace'; intro.hidden=signed;
     notice.hidden=signed && state.user?.kind!=='guest';
-    card.style.padding=signed?'12px':'24px'; card.style.margin=signed?'0':'16px auto';
     const busy = pending || !['signed-out', 'awaiting-code', 'signed-in'].includes(state.phase);
     card.setAttribute('aria-busy', busy ? 'true' : 'false');
     emailForm.hidden = signed; codeForm.hidden = signed || !awaiting;

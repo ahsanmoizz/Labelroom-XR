@@ -11,14 +11,14 @@ export interface ProjectsPanelOptions {
 }
 /** The verified member workspace owns this panel; the service independently verifies every bearer and UID. */
 export function mountPrivateProjectsPanel(root: HTMLElement, options: ProjectsPanelOptions) {
-  const doc = root.ownerDocument, panel = doc.createElement('section'); panel.setAttribute('aria-label', 'Private projects'); panel.style.cssText = 'margin-top:16px;padding-top:12px;border-top:1px solid #527188';
+  const doc = root.ownerDocument, panel = doc.createElement('section'); panel.setAttribute('aria-label', 'Private projects'); panel.className = 'projects-panel';
   const heading = doc.createElement('h3'); heading.textContent = 'Private projects';
   const note = doc.createElement('p'); note.textContent = 'Keep up to three private projects. Saving uploads the original ZIP. Your local file stays unchanged.';
   const status = doc.createElement('p'); status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite'); status.textContent = 'Refresh to list your saved private projects.';
   const save = doc.createElement('button'); save.type = 'button'; save.textContent = 'Save dataset privately';
   const refresh = doc.createElement('button'); refresh.type = 'button'; refresh.textContent = 'Refresh projects';
-  const controls = doc.createElement('div'); controls.style.cssText = 'display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px'; controls.append(save, refresh);
-  const rows = doc.createElement('div'); panel.append(heading, note, controls, status, rows); root.append(panel);
+  const controls = doc.createElement('div'); controls.className = 'action-grid'; controls.append(save, refresh);
+  const rows = doc.createElement('div'); rows.className='project-list'; panel.append(heading, note, controls, status, rows); root.append(panel);
   let closed = false, busy = false, presenting = false, generation = 0, loaded: string | undefined, armed: string | undefined;
   let pending: { id: string; hash: string } | undefined, active: AbortController | undefined, items: readonly PrivateProject[] = [];
   const pendingDeletes = new Map<string, PrivateProject>();
@@ -35,10 +35,10 @@ export function mountPrivateProjectsPanel(root: HTMLElement, options: ProjectsPa
   function render() {
     rowListeners.splice(0).forEach(close => close()); rows.replaceChildren(); rowButtons = []; openRows.clear();
     for (const project of items) {
-      const row = doc.createElement('div'), label = doc.createElement('p'); row.style.cssText = 'margin-top:12px'; label.textContent = `Project ${project.id.slice(0, 8)} · revision ${project.current_revision}`;
+      const row = doc.createElement('div'), label = doc.createElement('p'), actions = doc.createElement('div'); row.className='project-card'; actions.className='action-grid'; label.textContent = `Project ${project.id.slice(0, 8)} · revision ${project.current_revision}`;
       const open = doc.createElement('button'); open.type = 'button'; open.textContent = 'Open project'; open.setAttribute('aria-label', 'Open project ' + project.id);
       const remove = doc.createElement('button'); remove.type = 'button'; remove.textContent = armed === project.id ? 'Confirm deletion' : 'Delete project'; remove.setAttribute('aria-label', remove.textContent + ' ' + project.id);
-      row.append(label, open, remove); rowButtons.push(open, remove); openRows.set(open, project.id);
+      open.className='button-primary';remove.className='button-caution';actions.append(open,remove);row.append(label,actions); rowButtons.push(open, remove); openRows.set(open, project.id);
       if (armed === project.id) { const warning = doc.createElement('p'); warning.textContent = 'Delete this private project and its saved versions?'; const cancel = doc.createElement('button'); cancel.type = 'button'; cancel.textContent = 'Cancel deletion'; row.append(warning, cancel); rowButtons.push(cancel); listen(cancel, () => { if (!allowed() || busy) return; armed = undefined; render(); }, rowListeners); }
       listen(open, () => { if (pendingDeletes.has(project.id)) return; void operation('open', async signal => { const result = await options.service.open(project.id, signal); if (result.project.id !== project.id || result.project.status !== 'ready') throw new Error('Project response differs.'); return () => { presenting = true; try { options.preview.show(result); } finally { presenting = false; } loaded = project.id; pending = undefined; status.textContent = `Opened project ${project.id.slice(0, 8)} at revision ${result.project.current_revision}.`; }; }); }, rowListeners);
       listen(remove, () => {

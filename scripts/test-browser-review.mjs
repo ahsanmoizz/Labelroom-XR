@@ -6,6 +6,7 @@ import {fileURLToPath} from 'node:url';
 import {buildSync} from 'esbuild';
 import {chromium} from 'playwright';
 import {runCases} from '../tests/integration/review-form-browser.mjs';
+import {runLayoutCases} from '../tests/integration/layout-browser.mjs';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const temp=fs.mkdtempSync(path.join(os.tmpdir(),'labelxr-browser-review-'));
 const output=process.argv[2]??path.join(os.tmpdir(),'labelxr-browser-review-'+Date.now()+'.json');
@@ -25,6 +26,8 @@ const sources={
  'src/data/draft-cache.ts':['createIndexedDbDraftCache','createReviewDraft','validateReviewDraft','draftKey','DraftCacheError'],
  'src/data/form-draft-cache.ts':['createIndexedDbFormCache'],
  'src/ui/review-controls.ts':['mountReviewControls'],
+ 'src/ui/login.ts':['mountLoginPanel'],
+ 'src/ui/agent.ts':['mountAgentPanel'],
  'src/workers/protocol.ts':['fitWithinBounds']
 };
 const contents=Object.entries(sources).map(([file,names])=>'export {'+names.join(',')+'} from '+JSON.stringify(path.join(root,file))+';').join('\n')+'\nexport {zipSync,unzipSync} from "fflate";';
@@ -34,6 +37,8 @@ const assets=new Map([
  ['/modules/bridge.mjs',[fs.readFileSync(path.join(temp,'bridge.mjs')),'text/javascript']],
  ['/workers/review.worker.ts',[fs.readFileSync(path.join(temp,'worker.mjs')),'text/javascript']],
  ['/fixture.mjs',[fs.readFileSync(path.join(root,'tests/integration/browser-review-fixture.mjs')),'text/javascript']],
+ ['/layout-fixture.mjs',[fs.readFileSync(path.join(root,'tests/integration/layout-fixture.mjs')),'text/javascript']],
+ ['/workspace.css',[fs.readFileSync(path.join(root,'src/ui/workspace.css')),'text/css']],
  ['/source.zip',[fs.readFileSync(path.join(root,'fixtures/contract-example.zip')),'application/zip']],
  ['/',[Buffer.from('<!doctype html><html><head><meta charset="utf-8"><title>Local review tests</title></head><body><p id="status"></p><main id="workspace"></main><script type="module" src="/fixture.mjs"></script></body></html>'),'text/html']]
 ]);
@@ -48,8 +53,9 @@ try{
  const context=await browser.newContext();
  await context.route('**/*',route=>{if(new URL(route.request().url()).origin===origin)return route.continue();blocked++;return route.abort('blockedbyclient');});
  const result=await runCases(context,origin+'/');
+ const layout=await runLayoutCases(context,origin+'/',process.env.LABELXR_LAYOUT_SCREENSHOTS);
  if(blocked)throw Error('Unexpected external requests: '+blocked);
- const report={schema:'labelxr-browser-review-regression/v1',...result,browser:browser.version(),blockedExternalRequests:blocked,backend:'Explicit synthetic local backend; actual DOM, workers and IndexedDB',hardwareAcceptance:false};
+ const report={schema:'labelxr-browser-review-regression/v1',...result,layout,browser:browser.version(),blockedExternalRequests:blocked,backend:'Explicit synthetic local backend; actual DOM, workers and IndexedDB. Layout scene is a labelled placeholder; no GPU/XR result is claimed.',hardwareAcceptance:false};
  fs.writeFileSync(output,JSON.stringify(report,null,2)+'\n',{flag:'wx'});
  console.log(JSON.stringify({passed:report.passed,count:report.count,browser:report.browser,report:output,externalRequests:blocked}));
 }finally{await browser?.close();await new Promise(resolve=>server.close(resolve));fs.rmSync(temp,{recursive:true,force:true});}

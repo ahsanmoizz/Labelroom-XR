@@ -15,6 +15,7 @@ import type { ReviewCommand } from '../domain/revision';
 import type { ReviewPhase } from './store';
 import type {SpatialReviewPort} from '../ui/spatial-review-port';
 import {mountSpatialReview} from '../xr/spatial-review';
+import { mountWorkspaceTools } from '../ui/workspace-tools';
 
 export interface OwnedReviewWorkspace extends WorkspaceResource {
   selectFrame?(id: string): void;
@@ -44,12 +45,13 @@ export function createDatasetWorkspace(load: () => Promise<WorldFactory>, adapte
   return async (container: HTMLElement, signal: AbortSignal, context?: WorkspaceContext): Promise<WorkspaceResource> => {
     if (signal.aborted) throw new Error('Workspace opening was cancelled.');
     const doc = container.ownerDocument, scene = doc.createElement('div'), overlay = doc.createElement('div');
-    scene.style.cssText = 'width:100%;height:100%';
-    overlay.style.cssText = 'position:absolute;inset:0;pointer-events:none';
+    scene.className = 'workspace-scene';
+    overlay.className = 'workspace-overlay';
     container.style.position = 'relative'; container.append(scene, overlay);
     let closed = false, cleanupFailed = false;
     let worldOwner: WorkspaceResource | undefined, panel: ReturnType<typeof mountDatasetPanel> | undefined;
     let projects: ReturnType<typeof mountPrivateProjectsPanel> | undefined;
+    let menus: ReturnType<typeof mountWorkspaceTools> | undefined;
     let spatial: WorkspaceResource | undefined;
     let review: OwnedReviewWorkspace | undefined, reviewController: AbortController | undefined;
     let reviewClose: HTMLButtonElement | undefined, reviewNotice: HTMLElement | undefined;
@@ -66,7 +68,7 @@ export function createDatasetWorkspace(load: () => Promise<WorldFactory>, adapte
       if (closed) { if (cleanupFailed) throw new WorkspaceCleanupError(); return; }
       closed = true; signal.removeEventListener('abort', onAbort);
       const p = panel, w = worldOwner, privateProjects = projects; panel = undefined; worldOwner = undefined; projects = undefined;
-      for (const close of [() => { unsubscribeDataset?.(); unsubscribeFrame?.(); closeReview(); }, () => privateProjects?.dispose(), () => p?.dispose(), () => w?.dispose(), () => overlay.remove(), () => scene.remove()]) {
+      for (const close of [() => menus?.dispose(), () => { unsubscribeDataset?.(); unsubscribeFrame?.(); closeReview(); }, () => privateProjects?.dispose(), () => p?.dispose(), () => w?.dispose(), () => overlay.remove(), () => scene.remove()]) {
         try { close(); } catch { cleanupFailed = true; }
       }
       if (cleanupFailed) throw new WorkspaceCleanupError();
@@ -81,6 +83,7 @@ export function createDatasetWorkspace(load: () => Promise<WorldFactory>, adapte
       if (closed || signal.aborted) { try { owned.dispose(); } catch { cleanupFailed = true; } if (cleanupFailed) throw new WorkspaceCleanupError(); throw new Error('Workspace opening was cancelled.'); }
       worldOwner = owned;
       panel = mountDatasetPanel(overlay, { createView: (source, display) => (adapters.createView || createReviewView)(world, display || source), load: adapters.load, privateProjects: context?.user.kind === 'member' && !!adapters.projects });
+      menus = mountWorkspaceTools(overlay, panel.element, doc.getElementById?.('account-container') || undefined, context?.user.kind === 'guest');
       const preview = panel;
       function startReview(result: OpenedProject) {
         closeReview();
@@ -117,7 +120,10 @@ export function createDatasetWorkspace(load: () => Promise<WorldFactory>, adapte
         open.type = 'button'; open.textContent = 'Open PandaSet demo';
         status.setAttribute('role', 'status');
         status.textContent = 'Open the sample for this guest session. Access expires after 24 hours.';
-        section.append(title, disclosure, open, reset, confirmReset, cancelReset, status); preview.element.append(section);
+        const actions=doc.createElement('div');actions.className='action-grid guest-demo-actions';
+        open.className='button-primary';reset.className=confirmReset.className='button-caution';
+        actions.append(open,reset,confirmReset,cancelReset);
+        section.append(title, disclosure, actions, status); preview.element.append(section);
         reset.addEventListener('click',()=>{if(!reset.disabled){confirmReset.hidden=cancelReset.hidden=false;status.textContent='Reset deletes this demo and its saved decisions, then opens a fresh sample. Export first if you want to keep your work.';}});
         cancelReset.addEventListener('click',()=>{confirmReset.hidden=cancelReset.hidden=true;status.textContent='Your demo is unchanged.';});
         async function showDemo(resetting=false) {
