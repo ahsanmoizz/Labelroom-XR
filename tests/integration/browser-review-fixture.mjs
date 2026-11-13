@@ -2,6 +2,7 @@
 import * as api from './modules/bridge.mjs';
 import {prepareLayout} from './layout-fixture.mjs';
 import {prepareXR} from './xr-browser-fixture.mjs';
+import {runLive} from './final-live-probe.mjs';
 const assert={equal(a,b){if(!Object.is(a,b))throw Error('Synthetic backend revision differs')}};
 const json=v=>new TextEncoder().encode(JSON.stringify(v)),clone=structuredClone;
 const A='11111111-1111-4111-8111-111111111111',P='00000000-0000-4000-8000-000000000002',rid=n=>'99999999-9999-4999-8999-'+String(n).padStart(12,'0');
@@ -21,7 +22,7 @@ function backend(original=source,sc=scope,initial){let revision=initial?.revisio
 }
 const rawSource=new Uint8Array(await (await fetch('./source.zip',{cache:'no-store'})).arrayBuffer());
 function cloud(n=216,center=[0,0,0],size=[2,2,2]){const points=new Float32Array(n*3),side=Math.ceil(Math.cbrt(n));for(let i=0;i<n;i++){const x=i%side,y=Math.floor(i/side)%side,z=Math.floor(i/(side*side));points[i*3]=center[0]+(x/(side-1)-.5)*size[0]*.95;points[i*3+1]=center[1]+(y/(side-1)-.5)*size[1]*.95;points[i*3+2]=center[2]+(z/(side-1)-.5)*size[2]*.95}return points}
-async function variant(kind){const original=await api.loadBundleBytes(new Uint8Array(rawSource));if(kind==='base')return original;const members=api.unzipSync(original.getOriginalZipBytes()),manifest=JSON.parse(new TextDecoder().decode(members['manifest.json'])),labels=JSON.parse(new TextDecoder().decode(members['labels.openlabel.json'])),fid=original.frames[0].id,oid=original.frames[0].boxes[0].id,v=labels.openlabel.frames[fid].objects[oid].object_data.cuboid[0].val,points=cloud(216,v.slice(0,3),v.slice(7,10)),head=new TextEncoder().encode('VERSION .7\nFIELDS x y z\nSIZE 4 4 4\nTYPE F F F\nCOUNT 1 1 1\nWIDTH 216\nHEIGHT 1\nVIEWPOINT 0 0 0 1 0 0 0\nPOINTS 216\nDATA binary\n'),pcd=new Uint8Array(head.length+points.byteLength);pcd.set(head);pcd.set(new Uint8Array(points.buffer),head.length);members[manifest.frames[0].pcd]=pcd;manifest.frames[0].pointCount=216;manifest.frames[0].sha256=await sha(pcd);for(const id of Object.keys(labels.openlabel.frames[fid].objects))if(id!==oid)delete labels.openlabel.frames[fid].objects[id];if(kind==='duplicate'){labels.openlabel.objects.partner=clone(labels.openlabel.objects[oid]);labels.openlabel.frames[fid].objects.partner=clone(labels.openlabel.frames[fid].objects[oid])}if(kind==='multi'){members['frames/001.pcd']=new Uint8Array(pcd);manifest.frames.push({...manifest.frames[0],id:'1',timestamp:.1,pcd:'frames/001.pcd'});labels.openlabel.frames['1']=clone(labels.openlabel.frames[fid]);labels.openlabel.frames['1'].frame_properties.timestamp=.1}members['labels.openlabel.json']=json(labels);manifest.hashes['labels.openlabel.json']=await sha(members['labels.openlabel.json']);members['manifest.json']=json(manifest);return api.loadBundleBytes(api.zipSync(members,{mtime:new Date('2026-01-01T00:00:00Z')}))}
+async function variant(kind){const original=await api.loadBundleBytes(new Uint8Array(rawSource));if(kind==='base')return original;const members=api.unzipSync(original.getOriginalZipBytes()),manifest=JSON.parse(new TextDecoder().decode(members['manifest.json'])),labels=JSON.parse(new TextDecoder().decode(members['labels.openlabel.json'])),fid=original.frames[0].id,oid=original.frames[0].boxes[0].id,v=labels.openlabel.frames[fid].objects[oid].object_data.cuboid[0].val,points=cloud(216,kind==='live'?v.slice(0,3).map((n,i)=>n+(i===0?20:0)):v.slice(0,3),v.slice(7,10)),head=new TextEncoder().encode('VERSION .7\nFIELDS x y z\nSIZE 4 4 4\nTYPE F F F\nCOUNT 1 1 1\nWIDTH 216\nHEIGHT 1\nVIEWPOINT 0 0 0 1 0 0 0\nPOINTS 216\nDATA binary\n'),pcd=new Uint8Array(head.length+points.byteLength);pcd.set(head);pcd.set(new Uint8Array(points.buffer),head.length);members[manifest.frames[0].pcd]=pcd;manifest.frames[0].pointCount=216;manifest.frames[0].sha256=await sha(pcd);for(const id of Object.keys(labels.openlabel.frames[fid].objects))if(id!==oid)delete labels.openlabel.frames[fid].objects[id];if(kind==='duplicate'||kind==='live'){labels.openlabel.objects.partner=clone(labels.openlabel.objects[oid]);labels.openlabel.frames[fid].objects.partner=clone(labels.openlabel.frames[fid].objects[oid])}if(kind==='multi'){members['frames/001.pcd']=new Uint8Array(pcd);manifest.frames.push({...manifest.frames[0],id:'1',timestamp:.1,pcd:'frames/001.pcd'});labels.openlabel.frames['1']=clone(labels.openlabel.frames[fid]);labels.openlabel.frames['1'].frame_properties.timestamp=.1}members['labels.openlabel.json']=json(labels);manifest.hashes['labels.openlabel.json']=await sha(members['labels.openlabel.json']);members['manifest.json']=json(manifest);return api.loadBundleBytes(api.zipSync(members,{mtime:new Date('2026-01-01T00:00:00Z')}))}
 async function setup(config={}){
  if(current){current.controller.abort();current.workspace.dispose()}
  source=await variant(config.variant??'cube');scope={ownerId:config.ownerId??A,projectId:config.projectId??P,sourceBundleSha256:source.bundleSha256};frameId=source.frames[0].id;objectId=source.frames[0].boxes[0].id;
@@ -45,3 +46,26 @@ window.labelxrBrowser={setup,state,async typed(){return await current.formCache.
 document.getElementById('status').textContent='Browser fixture ready. Synthetic local backend; no live account or provider requests.';
 window.labelxrBrowser.prepareLayout=()=>prepareLayout(api,current);
 window.labelxrBrowser.prepareXR=()=>prepareXR(api,current);
+
+// Exercise the portable live collector against real UI/controllers and an explicit local API fixture.
+window.labelxrBrowser.exerciseLiveProbe=async mode=>{
+ await prepareLayout(api,current);document.querySelector('.guest-demo-actions button').click();
+ const deadline=Date.now()+10000;while(!document.querySelector('.ai-panel')&&Date.now()<deadline)await new Promise(r=>setTimeout(r,20));
+ const base='https://aawwmcbhyyokkhhvcfmv.supabase.co',origin='https://guest-staging.labelroom-xr.pages.dev',offers=[];
+ const fetcher=async(url,init)=>{
+  if(!url.startsWith(base)||init.method!=='GET'||init.redirect!=='error'||init.credentials!=='omit')throw Error('Unexpected fixture request');
+  const u=new URL(url),p=current.model.head(),signed=init.headers.Authorization==='Bearer fixture-token';
+  const error=()=>Response.json({code:'NoSuchKey',statusCode:'404'},{status:400});
+  if(!signed)return u.pathname.startsWith('/rest/')?Response.json({error:'auth'},{status:401}):error();
+  if(u.pathname==='/auth/v1/user')return Response.json({id:current.scope.ownerId,role:'authenticated',is_anonymous:mode!=='bad-auth'});
+  if(u.pathname.startsWith('/storage/'))return u.pathname.includes('/'+current.scope.projectId+'/')?new Response(current.source.getOriginalZipBytes()):error();
+  const id=u.searchParams.get(u.pathname.endsWith('/projects')?'id':'project_id');if(id&&id!=='eq.'+p.id)return Response.json([]);
+  if(u.pathname.endsWith('/projects'))return Response.json([{...p,storage_prefix:p.owner_id+'/'+p.id}]);
+  if(u.pathname.endsWith('/label_versions'))return Response.json([current.model.version()]);
+  if(u.pathname.endsWith('/mutations'))return Response.json(current.model.history);
+  throw Error('Unexpected fixture table');
+ };
+ const config={runId:'fixture-live-collector',nonce:'a'.repeat(64),manifestSha256:'b'.repeat(64),phase:mode==='a'?'a-control':'b-lifecycle',appOrigin:origin,supabaseUrl:base,publishableKey:'sb_publishable_fixture_public_key',sourceSha256:mode==='bad-source'?'0'.repeat(64):current.source.bundleSha256,sourceBytes:current.source.getOriginalZipBytes().length,guestA:{ownerId:'22222222-2222-4222-8222-222222222222',projectId:'00000000-0000-4000-8000-000000000001'}};
+ const receipt=await runLive(config,{origin,fetch:fetcher,storage:{getItem:()=>JSON.stringify({access_token:'fixture-token'})},document,crypto,now:()=>new Date().toISOString(),offerSource:(bytes,name)=>offers.push({bytes:bytes.length,name})});
+ return{receipt,state:state(),offers,downloads:current.downloads.length};
+};
