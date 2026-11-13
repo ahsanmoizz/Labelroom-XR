@@ -35,6 +35,7 @@ buildSync({stdin:{contents,resolveDir:root},bundle:true,format:'esm',platform:'b
 buildSync({entryPoints:[path.join(root,'src/workers/review.worker.ts')],bundle:true,format:'esm',platform:'browser',target:'esnext',outfile:path.join(temp,'worker.mjs'),logLevel:'silent'});
 const assets=new Map([
  ['/final-live-probe.mjs',[fs.readFileSync(path.join(root,'tests/integration/final-live-probe.mjs')),'text/javascript']],
+ ['/prior-live-probe.mjs',[fs.readFileSync(path.join(root,'tests/integration/prior-live-probe.mjs')),'text/javascript']],
  ['/modules/bridge.mjs',[fs.readFileSync(path.join(temp,'bridge.mjs')),'text/javascript']],
  ['/workers/review.worker.ts',[fs.readFileSync(path.join(temp,'worker.mjs')),'text/javascript']],
  ['/fixture.mjs',[fs.readFileSync(path.join(root,'tests/integration/browser-review-fixture.mjs')),'text/javascript']],
