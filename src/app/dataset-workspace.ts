@@ -15,6 +15,7 @@ import type { ReviewCommand } from '../domain/revision';
 import type { ReviewPhase } from './store';
 import type {SpatialReviewPort} from '../ui/spatial-review-port';
 import {mountSpatialReview} from '../xr/spatial-review';
+import { mountWorkspaceTools } from '../ui/workspace-tools';
 
 export interface OwnedReviewWorkspace extends WorkspaceResource {
   selectFrame?(id: string): void;
@@ -50,6 +51,7 @@ export function createDatasetWorkspace(load: () => Promise<WorldFactory>, adapte
     let closed = false, cleanupFailed = false;
     let worldOwner: WorkspaceResource | undefined, panel: ReturnType<typeof mountDatasetPanel> | undefined;
     let projects: ReturnType<typeof mountPrivateProjectsPanel> | undefined;
+    let menus: ReturnType<typeof mountWorkspaceTools> | undefined;
     let spatial: WorkspaceResource | undefined;
     let review: OwnedReviewWorkspace | undefined, reviewController: AbortController | undefined;
     let reviewClose: HTMLButtonElement | undefined, reviewNotice: HTMLElement | undefined;
@@ -66,7 +68,7 @@ export function createDatasetWorkspace(load: () => Promise<WorldFactory>, adapte
       if (closed) { if (cleanupFailed) throw new WorkspaceCleanupError(); return; }
       closed = true; signal.removeEventListener('abort', onAbort);
       const p = panel, w = worldOwner, privateProjects = projects; panel = undefined; worldOwner = undefined; projects = undefined;
-      for (const close of [() => { unsubscribeDataset?.(); unsubscribeFrame?.(); closeReview(); }, () => privateProjects?.dispose(), () => p?.dispose(), () => w?.dispose(), () => overlay.remove(), () => scene.remove()]) {
+      for (const close of [() => menus?.dispose(), () => { unsubscribeDataset?.(); unsubscribeFrame?.(); closeReview(); }, () => privateProjects?.dispose(), () => p?.dispose(), () => w?.dispose(), () => overlay.remove(), () => scene.remove()]) {
         try { close(); } catch { cleanupFailed = true; }
       }
       if (cleanupFailed) throw new WorkspaceCleanupError();
@@ -81,6 +83,7 @@ export function createDatasetWorkspace(load: () => Promise<WorldFactory>, adapte
       if (closed || signal.aborted) { try { owned.dispose(); } catch { cleanupFailed = true; } if (cleanupFailed) throw new WorkspaceCleanupError(); throw new Error('Workspace opening was cancelled.'); }
       worldOwner = owned;
       panel = mountDatasetPanel(overlay, { createView: (source, display) => (adapters.createView || createReviewView)(world, display || source), load: adapters.load, privateProjects: context?.user.kind === 'member' && !!adapters.projects });
+      menus = mountWorkspaceTools(overlay, panel.element, doc.getElementById?.('account-container') || undefined, context?.user.kind === 'guest');
       const preview = panel;
       function startReview(result: OpenedProject) {
         closeReview();
