@@ -52,8 +52,8 @@ export async function runLive(c,e){
  try{
   need(e.origin===c.appOrigin&&c.appOrigin==='https://guest-staging.labelroom-xr.pages.dev'&&c.supabaseUrl==='https://aawwmcbhyyokkhhvcfmv.supabase.co','fixed-staging-origin');
   const session=JSON.parse(e.storage.getItem('sb-aawwmcbhyyokkhhvcfmv-auth-token')||'null');need(typeof session?.access_token==='string'&&session.access_token.length<8192,'guest-session');token=session.access_token;
-  r.ownerId=await identity('user-initial');let p=await head('own-initial');r.projectId=p.id;r.revision=p.current_revision;r.sourceSha256=p.source_hash;r.sourceBytes=p.source_bytes;
-  let v=await version('own-initial-version',p);const initialHistory=await history('own-initial-history',p);sourceBytes=await source('own-initial-source',p);r.labelsSha256=await jhash(v.label_doc);
+  r.ownerId=await identity('user-initial');if(c.expectedGuest)need(r.ownerId===c.expectedGuest.ownerId,'current-guest-identity-differs');let p=await head('own-initial');r.projectId=p.id;r.revision=p.current_revision;if(c.expectedGuest)need(p.id===c.expectedGuest.projectId&&p.current_revision===c.expectedGuest.revision,'current-guest-project-or-revision-differs');r.sourceSha256=p.source_hash;r.sourceBytes=p.source_bytes;
+  let v=await version('own-initial-version',p);const initialHistory=await history('own-initial-history',p);sourceBytes=await source('own-initial-source',p);r.labelsSha256=await jhash(v.label_doc);if(c.expectedGuest){need(r.cases.find(x=>x.name==='own-initial-version').bodySha256===c.expectedGuest.versionSha256&&r.cases.find(x=>x.name==='own-initial-history').bodySha256===c.expectedGuest.historySha256&&r.labelsSha256===c.expectedGuest.labelsSha256,'current-guest-saved-state-differs');}
   if(c.phase==='a-control'){pass('guest-a-positive-read-control');}
   else if(c.phase==='b-lifecycle'){
    need(c.guestA&&r.ownerId!==c.guestA.ownerId&&r.projectId!==c.guestA.projectId,'different-guest-required');need(p.current_revision===(c.resumeReceipt?2:0),'disposable-revision-required');
@@ -66,6 +66,7 @@ export async function runLive(c,e){
     const restore=button('Restore typed edit');if(restore&&!restore.hidden&&!restore.disabled){need(!!button('Export saved revision')&&!button('Export saved revision').disabled&&button('Approve and save')?.disabled===true&&button('Retry same request')?.disabled===true,'resume-recovery-state');click('Restore typed edit');await wait(()=>ready()&&button('Restore typed edit')?.hidden===true,'typed-restore-timeout');r.localTypedDraftRestored=true;}
     await wait(ready,'review-not-ready');need(formMatches(v.label_doc)&&field('Review reason').value==='duplicate'&&button('Approve and save')?.disabled===true,'resume-form-differs');await clearTestReasonDraft();need((await head('resume-local-recovery-control',p.id)).current_revision===2,'local-recovery-wrote');two={p,v,h:initialHistory};
    }else{
+   if(c.expectedGuest&&!review()){click('Open PandaSet demo',e.document);await wait(()=>!!review()&&message().startsWith('Saved revision 0 loaded'),'current-review-open-timeout');const opened=await head('current-opened-project');need(opened.id===p.id&&opened.current_revision===0,'current-opened-project-differs');r.savedReviewReopened=true;}
    await wait(ready,'review-not-ready');
    need(![...review().querySelectorAll('button')].some(x=>!x.hidden&&['Discard typed edit…','Confirm typed edit discard','Restore typed edit'].includes(x.textContent.trim())),'existing-typed-draft');
    const frameId=field('Review frame').value,objectId=field('Review object').value,before=v.label_doc.openlabel.frames[frameId]?.objects?.[objectId]?.object_data?.cuboid?.[0]?.val;

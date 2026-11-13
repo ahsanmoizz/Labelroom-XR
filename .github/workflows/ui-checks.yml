@@ -1,7 +1,7 @@
 name: UI readability and review regression
 on:
   push:
-    branches: [main, deadline/complete-guest-demo, deadline/ui-readability, deadline/final-acceptance, deadline/auth-entry]
+    branches: [main, deadline/complete-guest-demo, deadline/ui-readability, deadline/final-acceptance, deadline/auth-entry, deadline/current-guest-check]
   workflow_dispatch:
 permissions:
   contents: read
