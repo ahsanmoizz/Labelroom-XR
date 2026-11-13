@@ -33,10 +33,10 @@ jobs:
         run: node scripts/test-browser-auth.mjs "$GITHUB_WORKSPACE/artifacts/auth.json"
         env:
           LABELXR_AUTH_SCREENSHOTS: ${{ github.workspace }}/artifacts/auth-captures
-      - name: Actual WebXR emulator and native hand event integration
-        run: node scripts/test-browser-xr.mjs "$GITHUB_WORKSPACE/artifacts/xr.json"
       - name: Restored account and actual SDK World manual XR lifecycle
         run: node scripts/test-browser-session.mjs "$GITHUB_WORKSPACE/artifacts/session.json"
+      - name: Actual WebXR emulator and native hand event integration
+        run: node scripts/test-browser-xr.mjs "$GITHUB_WORKSPACE/artifacts/xr.json"
       - name: Build with public fixture configuration only
         run: npm run build
         env:
