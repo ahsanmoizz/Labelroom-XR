@@ -67,7 +67,7 @@ export async function runLayoutCases(context,url,screenshots){
 /** Portable acceptance collector tested against actual panels and an explicitly synthetic API. */
 export async function runLiveProbeCases(context,url){
  const cases=[];
- for(const mode of ['a','b','bad-auth','bad-source','resume','recovered-draft','closed-review','bound-current','wrong-current','discover-only','discover-and-bind','changed-session','bind-stale-project','bind-stale-version']){
+ for(const mode of ['a','b','bad-auth','bad-source','resume','recovered-draft','closed-review','bound-current','wrong-current','discover-only','discover-and-bind','changed-session','bind-stale-project','bind-stale-version','ready-discovery','slow-opening','open-failed','not-open','changed-session-wait','review-closed-after-discovery']){
   const page=await context.newPage();
   try{
    await page.goto(url,{waitUntil:'load'});await page.waitForFunction(()=>!!window.labelxrBrowser);
@@ -81,6 +81,8 @@ export async function runLiveProbeCases(context,url){
    if(['changed-session','bind-stale-project','bind-stale-version'].includes(mode)){assert.equal(r.receipt.result,'stopped');assert.equal(r.receipt.newApprovedMutations,0);assert.equal(r.state.serverRevision,0);assert.equal(r.state.attempts,0);assert.equal(r.receipt.errorCode,{'changed-session':'browser-session-changed','bind-stale-project':'current-guest-project-or-revision-differs','bind-stale-version':'current-guest-saved-state-differs'}[mode])}
    if(mode==='wrong-current'){assert.equal(r.receipt.errorCode,'current-guest-identity-differs');assert.equal(r.receipt.newApprovedMutations,0);assert.equal(r.state.serverRevision,0)}
    if(mode==='bad-auth'||mode==='bad-source'){assert.equal(r.receipt.result,'stopped');assert.equal(r.receipt.approvedMutations,0);assert.equal(r.state.serverRevision,0)}
+   if(['ready-discovery','slow-opening'].includes(mode)){assert.equal(r.receipt.result,'completed',JSON.stringify(r.receipt));assert.equal(r.receipt.reviewReadyVerified,true);assert.equal(r.openClicks,1);assert.equal(r.state.attempts,0);assert.equal(r.receipt.approvedMutations,0);assert.equal(r.state.serverRevision,0);if(mode==='slow-opening')assert(Date.parse(r.receipt.finishedAt)-Date.parse(r.receipt.startedAt)>=20000,'Slow app load must exceed the old 20 second timeout')}
+   if(['open-failed','not-open','changed-session-wait','review-closed-after-discovery'].includes(mode)){assert.equal(r.receipt.result,'stopped');assert.equal(r.receipt.errorCode,{'open-failed':'demo-open-failed','not-open':'open-demo-through-app-first','changed-session-wait':'browser-session-changed','review-closed-after-discovery':'open-demo-through-app-first'}[mode],JSON.stringify(r.receipt));assert.equal(r.state.attempts,0);assert.equal(r.state.serverRevision,0);assert.equal(r.receipt.approvedMutations,0);assert.equal(r.receipt.resetRequests,0);assert.equal(r.openClicks,mode==='not-open'?0:1)}
    cases.push({name:'Portable collector '+mode,passed:true});
   }finally{await page.evaluate(()=>window.labelxrBrowser?.dispose()).catch(()=>{});await page.close()}
  }

@@ -50,8 +50,11 @@ window.labelxrBrowser.prepareXR=()=>prepareXR(api,current);
 
 // Exercise the portable live collector against real UI/controllers and an explicit local API fixture.
 window.labelxrBrowser.exerciseLiveProbe=async mode=>{
- await prepareLayout(api,current);document.querySelector('.guest-demo-actions button').click();
- const deadline=Date.now()+10000;while(!document.querySelector('.ai-panel')&&Date.now()<deadline)await new Promise(r=>setTimeout(r,20));
+ const waitingModes=['slow-opening','open-failed','not-open','changed-session-wait'];
+ await prepareLayout(api,current,{guestDelayMs:mode==='slow-opening'?22000:mode==='open-failed'||mode==='changed-session-wait'?300:0,guestFailure:mode==='open-failed'});
+ let openClicks=0;document.querySelector('.guest-demo-actions button').addEventListener('click',()=>openClicks++);
+ if(mode!=='not-open')document.querySelector('.guest-demo-actions button').click();
+ if(!waitingModes.includes(mode)){const deadline=Date.now()+10000;while(!document.querySelector('.ai-panel')&&Date.now()<deadline)await new Promise(r=>setTimeout(r,20));}
  const base='https://aawwmcbhyyokkhhvcfmv.supabase.co',origin='https://guest-staging.labelroom-xr.pages.dev',offers=[];
  const fetcher=async(url,init)=>{
   if(!url.startsWith(base)||init.method!=='GET'||init.redirect!=='error'||init.credentials!=='omit')throw Error('Unexpected fixture request');
@@ -68,7 +71,7 @@ window.labelxrBrowser.exerciseLiveProbe=async mode=>{
  };
  const config={runId:'fixture-live-collector',nonce:'a'.repeat(64),manifestSha256:'b'.repeat(64),phase:mode==='a'?'a-control':'b-lifecycle',appOrigin:origin,supabaseUrl:base,publishableKey:'sb_publishable_fixture_public_key',sourceSha256:mode==='bad-source'?'0'.repeat(64):current.source.bundleSha256,sourceBytes:current.source.getOriginalZipBytes().length,guestA:{ownerId:'22222222-2222-4222-8222-222222222222',projectId:'00000000-0000-4000-8000-000000000001'}};
  if(mode==='bound-current'||mode==='wrong-current'){const v=await fetcher(base+'/rest/v1/label_versions?project_id=eq.'+current.scope.projectId,{method:'GET',headers:{Authorization:'Bearer fixture-token'},redirect:'error',credentials:'omit'}),h=await fetcher(base+'/rest/v1/mutations?project_id=eq.'+current.scope.projectId,{method:'GET',headers:{Authorization:'Bearer fixture-token'},redirect:'error',credentials:'omit'});config.expectedGuest={ownerId:mode==='wrong-current'?'33333333-3333-4333-8333-333333333333':current.scope.ownerId,projectId:current.scope.projectId,revision:0,versionSha256:await sha(await v.arrayBuffer()),historySha256:await sha(await h.arrayBuffer()),labelsSha256:await sha(new TextEncoder().encode(JSON.stringify((function stable(v){if(Array.isArray(v))return v.map(stable);if(v&&typeof v==='object')return Object.fromEntries(Object.keys(v).sort().map(k=>[k,stable(v[k])]));return v})(current.model.version().label_doc))))};}
- let sessionReads=0;const env={origin,fetch:fetcher,storage:{getItem:()=>JSON.stringify({access_token:mode==='changed-session'&&sessionReads++>0?'changed-fixture-token':'fixture-token'})},document,crypto,now:()=>new Date().toISOString(),offerSource:(bytes,name)=>offers.push({bytes:bytes.length,name})};let prior,blocked,blockedRevision;if(['resume','recovered-draft','closed-review'].includes(mode)){prior=await priorLive(config,env);const changed=clone(prior);changed.cases.find(x=>x.name==='version-r2').bodySha256='0'.repeat(64);blocked=await runLive({...config,resumeReceipt:changed},env);blockedRevision=current.model.revision;}
+ let sessionReads=0;const env={origin,fetch:fetcher,storage:{getItem:()=>JSON.stringify({access_token:(mode==='changed-session'&&sessionReads++>0)||(mode==='changed-session-wait'&&sessionReads++>8)?'changed-fixture-token':'fixture-token'})},document,crypto,now:()=>new Date().toISOString(),offerSource:(bytes,name)=>offers.push({bytes:bytes.length,name})};let prior,blocked,blockedRevision;if(['resume','recovered-draft','closed-review'].includes(mode)){prior=await priorLive(config,env);const changed=clone(prior);changed.cases.find(x=>x.name==='version-r2').bodySha256='0'.repeat(64);blocked=await runLive({...config,resumeReceipt:changed},env);blockedRevision=current.model.revision;}
  if(mode==='recovered-draft'||mode==='closed-review'){
   const configCopy={...current.config,serverState:current.model.dump()};window.labelxrBrowser.dispose();
   const status=document.createElement('p'),root=document.createElement('main');status.id='status';root.id='workspace';document.body.replaceChildren(status,root);
@@ -76,12 +79,13 @@ window.labelxrBrowser.exerciseLiveProbe=async mode=>{
   await prepareLayout(api,current);if(mode==='recovered-draft'){document.querySelector('.guest-demo-actions button').click();const end=Date.now()+10000;while(!document.querySelector('.review-panel')&&Date.now()<end)await new Promise(r=>setTimeout(r,20));}
  }
  let discovery;
- if(['discover-only','discover-and-bind','bind-stale-project','bind-stale-version'].includes(mode)){
-  discovery=await runLive({...config,phase:'discovery'},env);
+ if(['discover-only','discover-and-bind','bind-stale-project','bind-stale-version','ready-discovery','slow-opening','open-failed','not-open','changed-session-wait','review-closed-after-discovery'].includes(mode)){
+  discovery=await runLive({...config,phase:'discovery',requireReviewReady:['ready-discovery',...waitingModes,'review-closed-after-discovery'].includes(mode)},env);
   if(mode!=='discover-only'){
    config.expectedGuest={ownerId:discovery.ownerId,projectId:mode==='bind-stale-project'?'33333333-3333-4333-8333-333333333333':discovery.projectId,revision:discovery.revision,versionSha256:mode==='bind-stale-version'?'0'.repeat(64):discovery.cases.find(x=>x.name==='own-initial-version').bodySha256,historySha256:discovery.cases.find(x=>x.name==='own-initial-history').bodySha256,labelsSha256:discovery.labelsSha256};
   }
  }
- const receipt=mode==='discover-only'?discovery:await runLive({...config,...(prior?{resumeReceipt:prior}:{})},env);
- return{receipt,state:state(),offers,downloads:current.downloads.length,prior,blocked,blockedRevision,discovery};
+ if(mode==='review-closed-after-discovery')document.querySelector('.dataset-panel > button').click();
+ const receipt=['discover-only','ready-discovery',...waitingModes].includes(mode)?discovery:await runLive({...config,...(prior?{resumeReceipt:prior}:{})},env);
+ return{receipt,state:state(),offers,downloads:current.downloads.length,prior,blocked,blockedRevision,discovery,openClicks};
 };

@@ -34,6 +34,24 @@ export async function runLive(c,e){
  function set(name,value){checkSession();const el=field(name);need(!el.disabled,'locked-control');el.value=String(value);el.dispatchEvent(new e.document.defaultView.Event(el.tagName==='SELECT'?'change':'input',{bubbles:true}))}
  const message=()=>review()?.querySelector('[role="status"]')?.textContent??'';
  const ready=()=>!!button('Preview edit')&&!button('Preview edit').disabled&&['Review frame','Review object','Review reason'].every(name=>{const control=review()?.querySelector('[aria-label="'+name+'"]');return !!control&&!control.disabled});
+ // A normal guest open can spend 60s provisioning + 120s downloading before review validation.
+ // Observe that existing operation; the collector must never provision/reopen a demo implicitly.
+ function guestStatus(){const text=e.document.querySelector('.guest-demo-actions')?.parentElement?.querySelector(':scope > [role="status"]')?.textContent??'';return /^(?:Opening private demo…|Open the sample for this guest session\. Access expires after 24 hours\.|Private demo loaded at revision [0-9]+\.|The private demo could not be opened\. Retry, or use Reset demo if its 24-hour access expired\.|Resetting your demo…|Reset did not finish\. Open the demo first if it is still active, or retry Reset demo after an interrupted reset\.)$/.test(text)?text:null}
+ async function reviewReady(revision){
+  r.step='ui-wait-existing-review';const start=Date.now(),end=start+240000;
+  while(Date.now()<end){
+   checkSession();const open=button('Open PandaSet demo',e.document),status=guestStatus();
+   e.progress?.({step:r.step,elapsedSeconds:Math.floor((Date.now()-start)/1000),guestDemoStatus:status,reviewPresent:!!review()});
+   if(ready()&&message().startsWith('Saved revision '+revision+' loaded.')&&open&&!open.disabled){r.reviewReadyVerified=true;return}
+   need(!status?.startsWith('The private demo could not be opened.'),'demo-open-failed');
+   need(!status?.startsWith('Reset')&&!status?.startsWith('Resetting'),'unexpected-demo-reset-state');
+   need(!!open,'workspace-unavailable');
+   if(!review()&&!open.disabled)throw Error('open-demo-through-app-first');
+   const recovery=button('Restore typed edit');need(!recovery||recovery.hidden||recovery.disabled,'existing-typed-draft');
+   const reviewStatus=message();need(!reviewStatus.startsWith('Saved review unavailable')&&!reviewStatus.startsWith('Saved review could not'),'saved-review-load-failed');
+   await new Promise(resolve=>setTimeout(resolve,100));
+  }throw Error('existing-review-load-timeout');
+ }
  async function proposed(){await wait(()=>!!button('Approve and save')&&!button('Approve and save').disabled,'preview-timeout')}
  async function save(n){click('Approve and save');await wait(()=>!!button('Export saved revision')&&!button('Export saved revision').disabled&&message().includes('Saved revision '+n+'.'),'save-unconfirmed');r.approvedMutations++;r.newApprovedMutations++;const saved=await snap(n);r.revision=n;r.labelsSha256=await jhash(saved.v.label_doc);return saved}
  async function clearTestReasonDraft(){const discard=button('Discard typed edit…');if(discard&&!discard.hidden){await wait(()=>!discard.disabled,'draft-discard-locked');click('Discard typed edit…');click('Confirm typed edit discard');}await wait(ready,'test-draft-not-cleared')}
@@ -57,7 +75,7 @@ export async function runLive(c,e){
   const session=JSON.parse(e.storage.getItem(storageKey)||'null');need(typeof session?.access_token==='string'&&session.access_token.length<8192,'guest-session');token=session.access_token;
   r.ownerId=await identity('user-initial');if(c.expectedGuest)need(r.ownerId===c.expectedGuest.ownerId,'current-guest-identity-differs');let p=await head('own-initial');r.projectId=p.id;r.revision=p.current_revision;if(c.expectedGuest)need(p.id===c.expectedGuest.projectId&&p.current_revision===c.expectedGuest.revision,'current-guest-project-or-revision-differs');r.sourceSha256=p.source_hash;r.sourceBytes=p.source_bytes;
   let v=await version('own-initial-version',p);const initialHistory=await history('own-initial-history',p);sourceBytes=await source('own-initial-source',p);r.labelsSha256=await jhash(v.label_doc);if(c.expectedGuest){need(r.cases.find(x=>x.name==='own-initial-version').bodySha256===c.expectedGuest.versionSha256&&r.cases.find(x=>x.name==='own-initial-history').bodySha256===c.expectedGuest.historySha256&&r.labelsSha256===c.expectedGuest.labelsSha256,'current-guest-saved-state-differs');}
-  if(c.phase==='discovery'){pass('current-guest-read-only-discovery');}
+  if(c.phase==='discovery'){if(c.requireReviewReady)await reviewReady(p.current_revision);pass('current-guest-read-only-discovery');}
   else if(c.phase==='a-control'){pass('guest-a-positive-read-control');}
   else if(c.phase==='b-lifecycle'){
    need(c.guestA&&r.ownerId!==c.guestA.ownerId&&r.projectId!==c.guestA.projectId,'different-guest-required');need(p.current_revision===(c.resumeReceipt?2:0),'disposable-revision-required');
@@ -70,8 +88,7 @@ export async function runLive(c,e){
     const restore=button('Restore typed edit');if(restore&&!restore.hidden&&!restore.disabled){need(!!button('Export saved revision')&&!button('Export saved revision').disabled&&button('Approve and save')?.disabled===true&&button('Retry same request')?.disabled===true,'resume-recovery-state');click('Restore typed edit');await wait(()=>ready()&&button('Restore typed edit')?.hidden===true,'typed-restore-timeout');r.localTypedDraftRestored=true;}
     await wait(ready,'review-not-ready');need(formMatches(v.label_doc)&&field('Review reason').value==='duplicate'&&button('Approve and save')?.disabled===true,'resume-form-differs');await clearTestReasonDraft();need((await head('resume-local-recovery-control',p.id)).current_revision===2,'local-recovery-wrote');two={p,v,h:initialHistory};
    }else{
-   if(c.expectedGuest&&!review()){click('Open PandaSet demo',e.document);await wait(()=>!!review()&&message().startsWith('Saved revision 0 loaded'),'current-review-open-timeout');const opened=await head('current-opened-project');need(opened.id===p.id&&opened.current_revision===0,'current-opened-project-differs');r.savedReviewReopened=true;}
-   await wait(ready,'review-not-ready');
+   if(c.expectedGuest)await reviewReady(0);else await wait(ready,'review-not-ready');
    need(![...review().querySelectorAll('button')].some(x=>!x.hidden&&['Discard typed edit…','Confirm typed edit discard','Restore typed edit'].includes(x.textContent.trim())),'existing-typed-draft');
    const frameId=field('Review frame').value,objectId=field('Review object').value,before=v.label_doc.openlabel.frames[frameId]?.objects?.[objectId]?.object_data?.cuboid?.[0]?.val;
    need(Array.isArray(before)&&before.length===10&&[['X (metres)',0],['Y (metres)',1],['Z (metres)',2],['Length (metres)',7],['Width (metres)',8],['Height (metres)',9]].every(([name,i])=>Math.abs(Number(field(name).value)-before[i])<1e-9),'initial-form-differs');
@@ -95,7 +112,7 @@ export async function runLive(c,e){
    r.oldProjectId=p.id;r.projectId=fresh.id;r.revision=0;r.labelsSha256=await jhash(fv.label_doc);pass('confirmed-reset-fresh-source-and-old-reads-denied');
   }else throw Error('phase');
   need(await identity('user-final')===r.ownerId,'identity-changed');r.result='completed';r.step='finished';
- }catch(error){const panel=review(),names=new Set(['Preview edit','Approve and save','Reject preview','Reload saved state','Restore typed edit','Discard typed edit…','Confirm typed edit discard','Download recovery draft','Retry same request','Export saved revision','Open PandaSet demo']);r.uiState={reviewPresent:!!panel,reviewVisible:!!panel?.getClientRects().length,reviewStatus:panel?.querySelector(':scope > [role="status"]')?.textContent?.slice(0,500)??null,typedRecoveryStatus:panel?.querySelector('[aria-label="Typed edit recovery"] [role="status"]')?.textContent?.slice(0,500)??null,buttons:[...e.document.querySelectorAll('button')].filter(b=>names.has(b.textContent.trim())).slice(0,30).map(b=>({name:b.textContent.trim(),disabled:b.disabled,hidden:b.hidden,visible:!!b.getClientRects().length}))};r.errorCode=/^[a-z][a-z0-9-]{0,79}$/.test(error?.message??'')?error.message:'network-or-check-failed';}
+ }catch(error){const panel=review(),names=new Set(['Preview edit','Approve and save','Reject preview','Reload saved state','Restore typed edit','Discard typed edit…','Confirm typed edit discard','Download recovery draft','Retry same request','Export saved revision','Open PandaSet demo']);r.uiState={guestDemoStatus:guestStatus(),waitingForExistingOpen:button('Open PandaSet demo',e.document)?.disabled===true,openingSavedReview:[...e.document.querySelectorAll('.dataset-panel > p[role="status"]')].some(x=>x.textContent==='Opening saved review…'),reviewPresent:!!panel,reviewVisible:!!panel?.getClientRects().length,reviewStatus:panel?.querySelector(':scope > [role="status"]')?.textContent?.slice(0,500)??null,typedRecoveryStatus:panel?.querySelector('[aria-label="Typed edit recovery"] [role="status"]')?.textContent?.slice(0,500)??null,buttons:[...e.document.querySelectorAll('button')].filter(b=>names.has(b.textContent.trim())).slice(0,30).map(b=>({name:b.textContent.trim(),disabled:b.disabled,hidden:b.hidden,visible:!!b.getClientRects().length}))};r.errorCode=/^[a-z][a-z0-9-]{0,79}$/.test(error?.message??'')?error.message:'network-or-check-failed';}
  finally{token=undefined;r.finishedAt=e.now()}
  return r;
 }
