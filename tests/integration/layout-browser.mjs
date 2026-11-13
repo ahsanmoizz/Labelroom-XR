@@ -74,7 +74,7 @@ export async function runLiveProbeCases(context,url){
    await page.evaluate(()=>window.labelxrBrowser.setup({variant:'live',projectId:crypto.randomUUID()}));await page.waitForFunction(()=>window.labelxrBrowser.state().phase==='ready');
    const r=await page.evaluate(mode=>window.labelxrBrowser.exerciseLiveProbe(mode),mode);
    if(mode==='a'){assert.equal(r.receipt.result,'completed');assert.equal(r.state.serverRevision,0);assert.equal(r.receipt.approvedMutations,0)}
-   if(mode==='b'){assert.equal(r.receipt.result,'completed',JSON.stringify(r.receipt));assert.equal(r.state.serverRevision,4);assert.equal(r.receipt.approvedMutations,4);assert.equal(r.downloads,1);assert.equal(r.offers.length,1);assert.equal(r.receipt.tests.length,7)}
+   if(mode==='b'){assert.equal(r.receipt.result,'completed',JSON.stringify({receipt:r.receipt,state:{phase:r.state.phase,message:r.state.message,revision:r.state.revision,serverRevision:r.state.serverRevision,attempts:r.state.attempts}}));assert.equal(r.state.serverRevision,4);assert.equal(r.receipt.approvedMutations,4);assert.equal(r.downloads,1);assert.equal(r.offers.length,1);assert.equal(r.receipt.tests.length,7)}
    if(mode==='bad-auth'||mode==='bad-source'){assert.equal(r.receipt.result,'stopped');assert.equal(r.receipt.approvedMutations,0);assert.equal(r.state.serverRevision,0)}
    cases.push({name:'Portable collector '+mode,passed:true});
   }finally{await page.evaluate(()=>window.labelxrBrowser?.dispose()).catch(()=>{});await page.close()}

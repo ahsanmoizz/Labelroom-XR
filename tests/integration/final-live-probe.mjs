@@ -26,8 +26,8 @@ export async function runLive(c,e){
  const review=()=>e.document.querySelector('.review-panel');
  const field=name=>{const el=review()?.querySelector('[aria-label="'+name+'"]');need(el,'missing-control');return el};
  const button=(text,root=review())=>[...(root?.querySelectorAll('button')??[])].find(x=>x.textContent.trim()===text);
- const click=(text,root=review())=>{const b=button(text,root);need(b&&!b.disabled&&!b.hidden,'unavailable-action');b.click()};
- async function wait(fn,code){const end=Date.now()+20000;while(Date.now()<end){if(fn())return;await new Promise(resolve=>setTimeout(resolve,100))}throw Error(code)}
+ const click=(text,root=review())=>{const b=button(text,root);need(b&&!b.disabled&&!b.hidden,'unavailable-action');r.step='ui-'+text.toLowerCase().replace(/[^a-z0-9]+/g,'-');b.click()};
+ async function wait(fn,code){const end=Date.now()+20000;while(Date.now()<end){if(fn()){await new Promise(resolve=>setTimeout(resolve,0));if(fn())return}await new Promise(resolve=>setTimeout(resolve,100))}throw Error(code)}
  function set(name,value){const el=field(name);need(!el.disabled,'locked-control');el.value=String(value);el.dispatchEvent(new e.document.defaultView.Event(el.tagName==='SELECT'?'change':'input',{bubbles:true}))}
  const message=()=>review()?.querySelector('[role="status"]')?.textContent??'';
  const ready=()=>!!button('Preview edit')&&!button('Preview edit').disabled;
