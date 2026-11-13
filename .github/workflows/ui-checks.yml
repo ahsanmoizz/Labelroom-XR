@@ -1,7 +1,7 @@
 name: UI readability and review regression
 on:
   push:
-    branches: [main, deadline/complete-guest-demo, deadline/ui-readability, deadline/final-acceptance]
+    branches: [main, deadline/complete-guest-demo, deadline/ui-readability, deadline/final-acceptance, deadline/auth-entry]
   workflow_dispatch:
 permissions:
   contents: read
@@ -29,6 +29,10 @@ jobs:
         run: node scripts/test-browser-review.mjs "$GITHUB_WORKSPACE/artifacts/browser.json"
         env:
           LABELXR_LAYOUT_SCREENSHOTS: ${{ github.workspace }}/artifacts/ui-captures
+      - name: Entry, security footprint and account flow checks
+        run: node scripts/test-browser-auth.mjs "$GITHUB_WORKSPACE/artifacts/auth.json"
+        env:
+          LABELXR_AUTH_SCREENSHOTS: ${{ github.workspace }}/artifacts/auth-captures
       - name: Actual WebXR emulator and native hand event integration
         run: node scripts/test-browser-xr.mjs "$GITHUB_WORKSPACE/artifacts/xr.json"
       - name: Build with public fixture configuration only
