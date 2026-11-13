@@ -44,8 +44,8 @@ export function createDatasetWorkspace(load: () => Promise<WorldFactory>, adapte
   return async (container: HTMLElement, signal: AbortSignal, context?: WorkspaceContext): Promise<WorkspaceResource> => {
     if (signal.aborted) throw new Error('Workspace opening was cancelled.');
     const doc = container.ownerDocument, scene = doc.createElement('div'), overlay = doc.createElement('div');
-    scene.style.cssText = 'width:100%;height:100%';
-    overlay.style.cssText = 'position:absolute;inset:0;pointer-events:none';
+    scene.className = 'workspace-scene';
+    overlay.className = 'workspace-overlay';
     container.style.position = 'relative'; container.append(scene, overlay);
     let closed = false, cleanupFailed = false;
     let worldOwner: WorkspaceResource | undefined, panel: ReturnType<typeof mountDatasetPanel> | undefined;
@@ -117,7 +117,10 @@ export function createDatasetWorkspace(load: () => Promise<WorldFactory>, adapte
         open.type = 'button'; open.textContent = 'Open PandaSet demo';
         status.setAttribute('role', 'status');
         status.textContent = 'Open the sample for this guest session. Access expires after 24 hours.';
-        section.append(title, disclosure, open, reset, confirmReset, cancelReset, status); preview.element.append(section);
+        const actions=doc.createElement('div');actions.className='action-grid guest-demo-actions';
+        open.className='button-primary';reset.className=confirmReset.className='button-caution';
+        actions.append(open,reset,confirmReset,cancelReset);
+        section.append(title, disclosure, actions, status); preview.element.append(section);
         reset.addEventListener('click',()=>{if(!reset.disabled){confirmReset.hidden=cancelReset.hidden=false;status.textContent='Reset deletes this demo and its saved decisions, then opens a fresh sample. Export first if you want to keep your work.';}});
         cancelReset.addEventListener('click',()=>{confirmReset.hidden=cancelReset.hidden=true;status.textContent='Your demo is unchanged.';});
         async function showDemo(resetting=false) {

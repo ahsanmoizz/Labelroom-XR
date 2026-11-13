@@ -1,0 +1,200 @@
+/* Shared screen UI. Review commands and XR scene data are independent of presentation. */
+:root {
+  color-scheme: dark;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: #edf4fa;
+  background: #0c1420;
+  --panel: #10212e;
+  --field: #0a1823;
+  --line: #456172;
+  --muted: #b8c9d5;
+  --accent: #82e1d5;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; }
+body { font-size: 16px; line-height: 1.55; }
+[hidden] { display: none !important; }
+h1, h2, h3, h4 { line-height: 1.3; margin: 0 0 16px; overflow-wrap: anywhere; }
+h1 { font-size: 26px; }
+h2 { font-size: 21px; }
+h3 { font-size: 18px; }
+h4 { font-size: 16px; }
+p { margin: 0 0 16px; overflow-wrap: anywhere; }
+ul, ol { padding-left: 24px; margin: 0 0 16px; }
+li { margin: 8px 0; overflow-wrap: anywhere; }
+a { color: var(--accent); text-underline-offset: 3px; }
+button, input, select, textarea { font: inherit; }
+button, summary, input, select, textarea, a { -webkit-tap-highlight-color: transparent; }
+button {
+  min-width: 0;
+  max-width: 100%;
+  min-height: 48px;
+  padding: 12px 16px;
+  border: 1px solid #567587;
+  border-radius: 9px;
+  background: #1a3443;
+  color: #edf4fa;
+  line-height: 1.4;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+button:hover:not(:disabled) { background: #244657; border-color: #91bdca; }
+button.button-primary { background: var(--accent); border-color: var(--accent); color: #09221f; font-weight: 650; }
+button.button-primary:hover:not(:disabled) { background: #a3eee4; }
+button.button-caution { border-color: #ba9d79; color: #ffdbb0; }
+button:disabled {
+  opacity: 1;
+  color: #a7bac7;
+  background: #172b38;
+  border-color: #354e5e;
+  cursor: not-allowed;
+}
+:is(button, input, select, textarea, summary, a):focus-visible { outline: 3px solid #c6fff5; outline-offset: 3px; }
+:is(.dataset-panel, .account-card, .setup-card) label:not(.checkbox-field) {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+  margin: 0 0 16px;
+  color: #d7e5ee;
+  font-size: 14px;
+  font-weight: 550;
+  line-height: 1.5;
+}
+:is(.dataset-panel, .account-card) :is(input:not([type="checkbox"]):not([type="range"]), select, textarea) {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 48px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #688496;
+  border-radius: 8px;
+  background: var(--field);
+  color: #f2f7fb;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+:is(.dataset-panel, .account-card) :is(input, select, textarea):disabled { color: #a7bac7; border-color: #354e5e; background: #172b38; }
+input[type="number"] { font-variant-numeric: tabular-nums; }
+input[type="file"] { overflow: hidden; }
+input[type="file"]::file-selector-button {
+  min-height: 40px;
+  padding: 8px 12px;
+  margin: 0 10px 0 0;
+  border: 1px solid #688496;
+  border-radius: 6px;
+  color: #edf4fa;
+  background: #1a3443;
+  font: inherit;
+  cursor: pointer;
+}
+input[type="range"] { width: 100%; min-width: 0; min-height: 44px; margin: 0; accent-color: var(--accent); }
+input[type="checkbox"] { width: 24px; height: 24px; margin: 0; flex: 0 0 24px; accent-color: var(--accent); }
+textarea { min-height: 120px !important; resize: vertical; }
+textarea::placeholder, input::placeholder { color: #a7bac7; opacity: 1; }
+.checkbox-field { display: flex; align-items: flex-start; gap: 12px; margin: 20px 0 16px; font-size: 16px; }
+summary { display: flex; align-items: center; min-height: 48px; padding: 8px 0; cursor: pointer; color: #d7e5ee; }
+summary::before { content: "▸"; margin-right: 10px; }
+details[open] > summary::before { content: "▾"; }
+details > pre { padding: 12px; background: #0a1823; border-radius: 8px; white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/1.6 system-ui, sans-serif; }
+#setup-status { position: relative; z-index: 6; width: 100%; height: 100%; overflow: auto; padding: 20px; }
+.setup-card { max-width: 600px; padding: 24px; background: #142535; border: 1px solid var(--line); border-radius: 12px; }
+#account-container {
+  position: fixed;
+  z-index: 5;
+  top: 20px;
+  left: 20px;
+  width: min(19rem, calc(100% - 40px));
+  max-height: calc(100dvh - 40px);
+  overflow: auto;
+  overflow-wrap: anywhere;
+  scrollbar-gutter: stable;
+}
+.account-card { width: 100%; padding: 20px; margin: 0; border: 1px solid var(--line); border-radius: 14px; background: #101e2e; }
+.account-card h2 { margin-bottom: 12px; }
+.account-card p { font-size: 14px; line-height: 1.6; }
+.account-card form { display: grid; gap: 12px; margin-bottom: 16px; }
+.account-card form label { margin: 0; }
+.account-card > button { margin: 0 0 16px; }
+.account-links { display: flex; flex-wrap: wrap; gap: 8px 20px; margin: 0; }
+.account-links a { display: inline-flex; align-items: center; min-height: 44px; }
+#scene-container { position: fixed; inset: 0; width: 100%; height: 100dvh; min-width: 0; overflow: hidden; }
+.workspace-scene { width: 100%; height: 100%; }
+.workspace-overlay { position: absolute; inset: 0; pointer-events: none; }
+#scene-container canvas { display: block; max-width: 100%; max-height: 100%; }
+.dataset-panel {
+  position: absolute;
+  z-index: 2;
+  top: 20px;
+  right: 20px;
+  width: min(30rem, calc(100% - 40px));
+  max-height: calc(100% - 40px);
+  min-width: 0;
+  padding: 24px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  color: #edf4fa;
+  background: #10212ef5;
+  pointer-events: auto;
+}
+.dataset-panel > section, .review-panel > section { margin-top: 28px; padding-top: 24px; border-top: 1px solid var(--line); }
+.dataset-panel > button { width: 100%; margin-bottom: 16px; }
+.dataset-panel :is(section, div, label, p) { min-width: 0; }
+.dataset-panel [role="status"]:not(:empty) { padding: 12px 14px; border-left: 3px solid #80c6bf; border-radius: 4px; background: #182e3c; font-size: 14px; line-height: 1.6; }
+.dataset-panel [role="alert"] { color: #ffcfb3; }
+.action-grid, .dataset-controls, .review-fields, .review-selection {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  min-width: 0;
+  margin-bottom: 16px;
+}
+.review-selection { grid-template-columns: minmax(0, 1fr); gap: 0; }
+.review-fields label { margin-bottom: 0; }
+.dataset-controls label { grid-column: 1 / -1; margin-bottom: 0; }
+.review-action-group { margin-top: 20px; }
+.review-action-group h4 { margin-bottom: 10px; color: #c5d8e4; font-size: 14px; }
+.action-grid { align-items: stretch; }
+.action-grid > button { width: 100%; }
+.guest-demo-actions > .button-caution { font-size: 14px; }
+.checks-list, .project-list { display: grid; gap: 16px; }
+.issue-card, .project-card { min-width: 0; padding: 16px; border: 1px solid #456172; border-radius: 10px; background: #0c1b27; }
+.issue-card p { margin-bottom: 12px; }
+.object-meta { display: block; margin-top: 8px; color: var(--muted); font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.issue-card > button { width: 100%; }
+.ai-panel textarea { margin-bottom: 16px; }
+.ai-panel ol { font-size: 14px; }
+.workspace-loading { position: absolute; inset: auto 24px 16px; pointer-events: none; }
+noscript { display: block; padding: 24px; }
+@media (min-width: 901px) and (max-width: 1150px) {
+  #account-container { width: 16rem; left: 16px; top: 16px; }
+  .dataset-panel { width: 26rem; right: 16px; top: 16px; max-height: calc(100% - 32px); padding: 20px; }
+}
+@media (max-width: 900px) {
+  html, body { height: auto; min-height: 100%; overflow-x: hidden; overflow-y: auto; }
+  #setup-status { min-height: 100dvh; height: auto; }
+  #account-container { position: relative; inset: auto; width: auto; max-height: none; margin: 16px; overflow: visible; }
+  .account-card { max-width: none; }
+  #scene-container { position: relative; inset: auto; height: auto; overflow: visible; }
+  /* IWSDK sizes its camera and renderer to the window; retain that aspect ratio. */
+  .workspace-scene { height: 100dvh; min-height: 280px; }
+  .workspace-overlay { position: relative; inset: auto; padding: 16px; }
+  .dataset-panel { position: relative; inset: auto; width: 100%; max-width: none; max-height: none; padding: 24px; overflow: visible; }
+}
+@media (max-width: 480px) {
+  #account-container { margin: 12px; }
+  .workspace-overlay { padding: 12px; }
+  .dataset-panel, .account-card { padding: 18px; }
+  .account-card[data-connected="true"] { padding-top: 68px; }
+  .action-grid { grid-template-columns: minmax(0, 1fr); }
+  .review-fields { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  button { padding: 12px; }
+}
+@media (max-width: 360px) { .review-fields { grid-template-columns: minmax(0, 1fr); } }
