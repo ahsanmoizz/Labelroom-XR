@@ -67,7 +67,13 @@ window.labelxrBrowser.exerciseLiveProbe=async mode=>{
   throw Error('Unexpected fixture table');
  };
  const config={runId:'fixture-live-collector',nonce:'a'.repeat(64),manifestSha256:'b'.repeat(64),phase:mode==='a'?'a-control':'b-lifecycle',appOrigin:origin,supabaseUrl:base,publishableKey:'sb_publishable_fixture_public_key',sourceSha256:mode==='bad-source'?'0'.repeat(64):current.source.bundleSha256,sourceBytes:current.source.getOriginalZipBytes().length,guestA:{ownerId:'22222222-2222-4222-8222-222222222222',projectId:'00000000-0000-4000-8000-000000000001'}};
- const env={origin,fetch:fetcher,storage:{getItem:()=>JSON.stringify({access_token:'fixture-token'})},document,crypto,now:()=>new Date().toISOString(),offerSource:(bytes,name)=>offers.push({bytes:bytes.length,name})};let prior,blocked,blockedRevision;if(mode==='resume'){prior=await priorLive(config,env);const changed=clone(prior);changed.cases.find(x=>x.name==='version-r2').bodySha256='0'.repeat(64);blocked=await runLive({...config,resumeReceipt:changed},env);blockedRevision=current.model.revision;}
+ const env={origin,fetch:fetcher,storage:{getItem:()=>JSON.stringify({access_token:'fixture-token'})},document,crypto,now:()=>new Date().toISOString(),offerSource:(bytes,name)=>offers.push({bytes:bytes.length,name})};let prior,blocked,blockedRevision;if(['resume','recovered-draft','closed-review'].includes(mode)){prior=await priorLive(config,env);const changed=clone(prior);changed.cases.find(x=>x.name==='version-r2').bodySha256='0'.repeat(64);blocked=await runLive({...config,resumeReceipt:changed},env);blockedRevision=current.model.revision;}
+ if(mode==='recovered-draft'||mode==='closed-review'){
+  const configCopy={...current.config,serverState:current.model.dump()};window.labelxrBrowser.dispose();
+  const status=document.createElement('p'),root=document.createElement('main');status.id='status';root.id='workspace';document.body.replaceChildren(status,root);
+  await setup(configCopy);const deadline=Date.now()+10000;while(current.workspace.store.state().phase!=='ready'&&Date.now()<deadline)await new Promise(r=>setTimeout(r,20));
+  await prepareLayout(api,current);if(mode==='recovered-draft'){document.querySelector('.guest-demo-actions button').click();const end=Date.now()+10000;while(!document.querySelector('.review-panel')&&Date.now()<end)await new Promise(r=>setTimeout(r,20));}
+ }
  const receipt=await runLive({...config,...(prior?{resumeReceipt:prior}:{})},env);
  return{receipt,state:state(),offers,downloads:current.downloads.length,prior,blocked,blockedRevision};
 };

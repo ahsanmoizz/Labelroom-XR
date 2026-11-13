@@ -67,7 +67,7 @@ export async function runLayoutCases(context,url,screenshots){
 /** Portable acceptance collector tested against actual panels and an explicitly synthetic API. */
 export async function runLiveProbeCases(context,url){
  const cases=[];
- for(const mode of ['a','b','bad-auth','bad-source','resume']){
+ for(const mode of ['a','b','bad-auth','bad-source','resume','recovered-draft','closed-review']){
   const page=await context.newPage();
   try{
    await page.goto(url,{waitUntil:'load'});await page.waitForFunction(()=>!!window.labelxrBrowser);
@@ -75,7 +75,7 @@ export async function runLiveProbeCases(context,url){
    const r=await page.evaluate(mode=>window.labelxrBrowser.exerciseLiveProbe(mode),mode);
    if(mode==='a'){assert.equal(r.receipt.result,'completed');assert.equal(r.state.serverRevision,0);assert.equal(r.receipt.approvedMutations,0)}
    if(mode==='b'){assert.equal(r.receipt.result,'completed',JSON.stringify({receipt:r.receipt,state:{phase:r.state.phase,message:r.state.message,revision:r.state.revision,serverRevision:r.state.serverRevision,attempts:r.state.attempts}}));assert.equal(r.state.serverRevision,4);assert.equal(r.receipt.approvedMutations,4);assert.equal(r.downloads,1);assert.equal(r.offers.length,1);assert.equal(r.receipt.tests.length,7)}
-   if(mode==='resume'){assert.equal(r.prior.errorCode,'preview-timeout');assert.equal(r.prior.step,'ui-confirm-duplicate-removal');assert.equal(r.prior.approvedMutations,2);assert.equal(r.blocked.errorCode,'resume-saved-state-differs');assert.equal(r.blockedRevision,2);assert.equal(r.blocked.newApprovedMutations,0);assert.equal(r.receipt.result,'completed',JSON.stringify(r));assert.equal(r.receipt.inheritedApprovedMutations,2);assert.equal(r.receipt.newApprovedMutations,2);assert.equal(r.receipt.revision,4);assert.equal(r.state.serverRevision,4);assert.equal(r.downloads,1);assert.equal(r.offers.length,1);assert.equal(r.receipt.tests.length,7);assert(r.receipt.duplicateCandidate.displayedOrientedIoU>=.9)}
+   if(['resume','recovered-draft','closed-review'].includes(mode)){assert.equal(r.prior.errorCode,'preview-timeout');assert.equal(r.prior.step,'ui-confirm-duplicate-removal');assert.equal(r.prior.approvedMutations,2);assert.equal(r.blocked.errorCode,'resume-saved-state-differs');assert.equal(r.blockedRevision,2);assert.equal(r.blocked.newApprovedMutations,0);assert.equal(r.receipt.result,'completed',JSON.stringify(r));assert.equal(r.receipt.inheritedApprovedMutations,2);assert.equal(r.receipt.newApprovedMutations,2);assert.equal(r.receipt.revision,4);assert.equal(r.state.serverRevision,4);assert.equal(r.downloads,1);assert.equal(r.offers.length,1);assert.equal(r.receipt.tests.length,7);assert(r.receipt.duplicateCandidate.displayedOrientedIoU>=.9);if(mode==='recovered-draft'||mode==='closed-review')assert.equal(r.receipt.localTypedDraftRestored,true);if(mode==='closed-review')assert.equal(r.receipt.savedReviewReopened,true)}
    if(mode==='bad-auth'||mode==='bad-source'){assert.equal(r.receipt.result,'stopped');assert.equal(r.receipt.approvedMutations,0);assert.equal(r.state.serverRevision,0)}
    cases.push({name:'Portable collector '+mode,passed:true});
   }finally{await page.evaluate(()=>window.labelxrBrowser?.dispose()).catch(()=>{});await page.close()}
