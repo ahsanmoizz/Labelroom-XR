@@ -30,7 +30,7 @@ export async function runLive(c,e){
  async function wait(fn,code){const end=Date.now()+20000;while(Date.now()<end){if(fn()){await new Promise(resolve=>setTimeout(resolve,0));if(fn())return}await new Promise(resolve=>setTimeout(resolve,100))}throw Error(code)}
  function set(name,value){const el=field(name);need(!el.disabled,'locked-control');el.value=String(value);el.dispatchEvent(new e.document.defaultView.Event(el.tagName==='SELECT'?'change':'input',{bubbles:true}))}
  const message=()=>review()?.querySelector('[role="status"]')?.textContent??'';
- const ready=()=>!!button('Preview edit')&&!button('Preview edit').disabled;
+ const ready=()=>!!button('Preview edit')&&!button('Preview edit').disabled&&['Review frame','Review object','Review reason'].every(name=>{const control=review()?.querySelector('[aria-label="'+name+'"]');return !!control&&!control.disabled});
  async function proposed(){await wait(()=>!!button('Approve and save')&&!button('Approve and save').disabled,'preview-timeout')}
  async function save(n){click('Approve and save');await wait(()=>!!button('Export saved revision')&&!button('Export saved revision').disabled&&message().includes('Saved revision '+n+'.'),'save-unconfirmed');r.approvedMutations++;r.newApprovedMutations++;const saved=await snap(n);r.revision=n;r.labelsSha256=await jhash(saved.v.label_doc);return saved}
  async function clearTestReasonDraft(){const discard=button('Discard typed edit…');if(discard&&!discard.hidden){await wait(()=>!discard.disabled,'draft-discard-locked');click('Discard typed edit…');click('Confirm typed edit discard');}await wait(ready,'test-draft-not-cleared')}
