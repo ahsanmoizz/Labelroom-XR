@@ -35,7 +35,7 @@ jobs:
           VITE_SUPABASE_URL: https://aawwmcbhyyokkhhvcfmv.supabase.co
           VITE_APP_ORIGIN: https://guest-staging.labelroom-xr.pages.dev
           VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_fixture_build_only
-          VITE_TURNSTILE_SITE_KEY: 0x4AAAA000000000000000000
+          VITE_TURNSTILE_SITE_KEY: '0x4AAAA000000000000000000'
           VITE_GUEST_DEMO: 'true'
       - run: npm run pack:check && npm run preflight
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
