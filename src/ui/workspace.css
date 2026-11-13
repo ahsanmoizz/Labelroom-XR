@@ -271,7 +271,7 @@ noscript { display: block; padding: 24px; }
   margin: 0;
   padding: 40px;
   display: grid;
-  align-items: center;
+  align-items: safe center;
   justify-items: center;
   overflow-x: hidden;
   overflow-y: auto;

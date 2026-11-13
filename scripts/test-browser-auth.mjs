@@ -44,6 +44,7 @@ try {
     assert(measured.cardScroll <= measured.cardClient + 1, 'Entry card clips horizontal content');
     assert(measured.widget.x >= measured.host.x - 1 && measured.widget.right <= measured.host.right + 1, 'Security footprint is clipped');
     assert(measured.widget.right <= width && measured.widget.x >= 0, 'Security footprint escapes viewport');
+    assert(measured.card.y >= 0 && measured.brand.y >= 0, 'Entry header is scrolled above its initial viewport');
     assert(measured.wordmark.right <= measured.card.right - 12, 'Full wordmark is clipped'); assert(measured.markLoaded);
     assert.equal(measured.sizes.at(-1), measured.host.width < 300 ? 'compact' : 'flexible');
     for (const b of [...measured.buttons, ...measured.fields]) assert(b.height >= 47 && b.width >= 44, 'Entry target is too small');
