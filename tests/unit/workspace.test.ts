@@ -94,3 +94,26 @@ it('guest demo opens review controls and reset requires a separate explicit conf
  button('Reset demo').dispatch('click');button('Confirm reset and discard demo edits').dispatch('click');await tick();assert.equal(resets,1);assert.equal(reviews,2);assert.equal(closed,1);controller.abort();workspace.dispose();assert.equal(closed,2);assert.equal(root.children.length,0);
 });
 });
+
+describe('durable workspace reopening without cloud mutation replay',()=>{
+ async function prepared(options={}){
+  const {loadBundleBytes}=await import('../../src/data/bundle'),source=await loadBundleBytes(new Uint8Array(original));
+  const owner=guest.id,projectId='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',context={user:{id:owner,kind:'guest'},config:{supabaseUrl:'https://example.supabase.co'}},project={id:projectId,owner_id:owner,status:'ready',source_hash:source.bundleSha256,source_bytes:original.length,current_revision:2};
+  let record=options.record===false?undefined:{schema:'labelxr-open-workspace/v1',kind:'saved',projectId,sourceHash:source.bundleSha256,reviewOpen:false,frameId:source.frames[0].id,scale:.15},writes=0,reads=0,provisions=0,resets=0,clears=0;
+  const cache={read:()=>record,write:v=>{record=structuredClone(v);writes++},clear(){record=undefined;clears++},loadLocal:async()=>new Uint8Array(original),saveLocal:async()=>{}},views=[];
+  const doc=documentFixture(),root=doc.createElement('div'),controller=new AbortController();
+  const open=createDatasetWorkspace(async()=>async()=>world(),{workspaceCache:()=>cache,createView(){const v=viewFixture();views.push(v);return v},projects:()=>({async open(id){reads++;assert.equal(id,projectId);if(options.fail)throw Error('Synthetic source unavailable');return{original:source,project,labels:{document:source.labelsDocument}}}}),guestDemo:async()=>{provisions++;return{original:source,project,labels:{document:source.labelsDocument}}},resetGuestDemo:async()=>{resets++;throw Error('No reset authorized')}});
+  const resource=await open(root,controller.signal,context);await tick();
+  return{root,views,resource,cache,controller,get record(){return record},get reads(){return reads},get writes(){return writes},get provisions(){return provisions},get resets(){return resets},get clears(){return clears},button:name=>nodes(root).find(n=>n.tagName==='button'&&n.textContent===name)};
+ }
+ it('reopens the stored project through one read, restores scale, and never provisions/resets/saves',async()=>{const f=await prepared();assert.equal(f.reads,1);assert.equal(f.provisions,0);assert.equal(f.resets,0);assert.equal(f.views[0].scales.at(-1),.15);assert(!f.button('Close dataset').disabled);assert(!nodes(f.root).some(n=>n.textContent==='Close review'));f.resource.dispose();assert(f.record)});
+ it('a hard-reload disposal retains its pointer but explicit identity invalidation forgets it',async()=>{const f=await prepared();f.resource.dispose();assert(f.record);const next=await prepared();next.resource.forget();next.resource.dispose();assert.equal(next.record,undefined);assert.equal(next.clears,1)});
+ it('explicit Close dataset clears its pointer while leaving server methods untouched',async()=>{const f=await prepared();f.button('Close dataset').dispatch('click');assert.equal(f.record,undefined);assert.equal(f.clears,1);assert.equal(f.provisions,0);assert.equal(f.resets,0);f.resource.dispose()});
+ it('failed restoration retains the exact pointer and offers read-only retry',async()=>{const f=await prepared({fail:true}),before=structuredClone(f.record);assert.equal(f.reads,1);assert.equal(f.button('Retry reopening workspace').hidden,false);assert.equal(f.views.length,0);f.button('Retry reopening workspace').dispatch('click');await tick();assert.equal(f.reads,2);assert.deepEqual(f.record,before);assert.equal(f.provisions,0);assert.equal(f.resets,0);f.resource.dispose()});
+ it('a new verified workspace without a bookmark remains empty',async()=>{const f=await prepared({record:false});assert.equal(f.reads,0);assert.equal(f.provisions,0);assert.equal(f.views.length,0);f.resource.dispose()});
+});
+
+describe('workspace bookmark lifecycle at account boundaries',()=>{
+ it('page teardown disposes the view without forgetting a reopenable bookmark',async()=>{let forgotten=0,disposed=0;const f=fixture({identity:member,open:async()=>({forget(){forgotten++},dispose(){disposed++}})});await f.start();await tick();f.host.dispose();assert.equal(forgotten,0);assert.equal(disposed,1)});
+ it('an explicit sign-out forgets the open view before disposing it',async()=>{const order=[];const f=fixture({identity:member,open:async()=>({forget(){order.push('forget')},dispose(){order.push('dispose')}})});await f.start();await tick();f.setIdentity(null);f.emit('SIGNED_OUT');await tick();assert.deepEqual(order,['forget','dispose']);f.host.dispose()});
+});

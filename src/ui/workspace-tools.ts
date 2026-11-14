@@ -27,7 +27,8 @@ export function mountWorkspaceTools(root: HTMLElement, panel: HTMLElement, accou
     ['Inspect a frame and object', 'Use Previous frame or Next frame, Display scale and Reset view. In Review saved labels, choose the review frame and object. Hide controls or use Focus scene when a menu covers a box.'],
     ['Check before deciding', 'Run automatic checks, then select an issue or inspect point support. These measurements identify potential issues; they are not verified label errors.'],
     ['Preview, then approve', 'Enter values in source metres and yaw in degrees, and choose a reason. Preview edit shows a proposal. Compare original helps you check it. Approve and save commits it; Reject preview leaves saved labels unchanged.'],
-    ['Save and export your work', 'Wait for the saved revision confirmation. Export saved revision downloads that saved work. History and recovery offers last-edit undo and reload. Export before resetting the demo or signing out.']
+    ['Save and export your work', 'Wait for the saved revision confirmation. Export saved revision downloads that saved work. History and recovery offers last-edit undo and reload. Export before resetting the demo or signing out.'],
+    ['Continue after refresh', 'The same verified account reopens its saved review or local preview, frame and scale automatically. Typed edits can be restored explicitly; preview and approve again before saving. Close review keeps the preview; Close dataset stops reopening it. Guest expiry still applies.']
   ]) {
     const item = doc.createElement('li'), label = doc.createElement('strong'), detail = doc.createElement('p');
     label.textContent = title; detail.textContent = text; item.append(label, detail); steps.append(item);

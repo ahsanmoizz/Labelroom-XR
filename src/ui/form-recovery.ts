@@ -27,7 +27,10 @@ export function mountFormRecovery(parent:HTMLElement,options:{store:ReviewStore;
  listen(restore,'click',()=>{void restoreDraft()});listen(discard,'click',()=>{void discardDraft()});
  const unsubscribe=options.store.subscribe(()=>{if(!current())return;const s=options.store.snapshot(),state=options.store.state();if(!s)return;if(!scope){void load(s);return}if(state.phase==='proposed'&&record&&owned&&state.command&&matchesProposal(s,record,state.command))proposedId=state.command.requestId;if(state.phase==='ready'&&lastReadyRevision!==s.revision){const d=record,id=proposedId;lastReadyRevision=s.revision;proposedId=undefined;owned=false;if(d&&id&&s.revision>d.baseRevision&&s.mutations.some(m=>m.request_id===id&&m.operation==='updateCuboid')){void enqueue(async()=>{await options.cache.remove(ownerScope(s),d);if(current()){record=undefined;owned=false}})}}render()});
  const initial=options.store.snapshot();if(initial)void load(initial);else render();
- function dispose(){if(closed)return;closed=true;unsubscribe();options.signal.removeEventListener('abort',dispose);bindings.splice(0).forEach(fn=>fn());box.replaceChildren();box.remove();record=undefined;scope=undefined}
+ const view=doc.defaultView;
+ const beforeLeave=(event:BeforeUnloadEvent)=>{if(current()&&(writing>0||failed)){event.preventDefault();event.returnValue='';}};
+ view?.addEventListener('beforeunload',beforeLeave);
+ function dispose(){if(closed)return;closed=true;view?.removeEventListener('beforeunload',beforeLeave);unsubscribe();options.signal.removeEventListener('abort',dispose);bindings.splice(0).forEach(fn=>fn());box.replaceChildren();box.remove();record=undefined;scope=undefined}
  options.signal.addEventListener('abort',dispose,{once:true});if(options.signal.aborted)dispose();
  return{locked:()=>!loaded||failed||!!record&&(!owned||!selected()),selectionLocked:()=>!!writing,selected(){if(record)owned=false;armed=false;changed()},render,flush:async()=>{while(writing)await tail;return loaded&&!failed&&!writing},dispose};
 }

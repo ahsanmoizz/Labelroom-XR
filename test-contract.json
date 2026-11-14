@@ -69,7 +69,7 @@
     "phase": "B/E",
     "procedure": "Refresh with pending draft; project switch; signout; storage quota error; upload timeout; delete network failure; reload cleanly; expired auth.",
     "passCondition": "User sees pending vs committed; one recoverable draft for same owner/hash; private content cleared at signout; staged upload/delete eventually cleaned; no ready project with missing source.",
-    "files": "tests/e2e/review.spec.ts"
+    "files": "tests/e2e/review.spec.ts; tests/unit/workspace-cache.test.ts; scripts/test-browser-refresh.mjs"
   },
   {
     "id": "SEC-01",

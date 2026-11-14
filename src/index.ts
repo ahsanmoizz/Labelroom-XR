@@ -4,7 +4,7 @@ import { createSupabaseInitializer } from './services/supabase.js';
 import { createSupabaseAuthPort } from './services/auth.js';
 import { createChallenge, loadTurnstile } from './services/captcha.js';
 import { createDatasetWorkspace } from './app/dataset-workspace.js';
-import { createGuestDemoService, createProjectsService, createSupabaseProjectsSessions } from './services/projects.js';
+import { createGuestDemoService, createProjectsService, createSupabaseProjectsSessions, createSupabaseGuestProjectsSessions } from './services/projects.js';
 import { mountMemberReviewWorkspace, mountGuestReviewWorkspace } from './app/review-workspace.js';
 
 const statusRoot = document.getElementById('setup-status');
@@ -28,7 +28,7 @@ const application = createApplicationHost({
         return createGuestDemoService(await connect(context.config), context.config).open(context.user.id, signal);
       } : undefined,
     resetGuestDemo: async(context,projectId,signal)=>createGuestDemoService(await connect(context.config),context.config).reset(context.user.id,projectId,signal),
-    projects: async context => createProjectsService(createSupabaseProjectsSessions(await connect(context.config), context.config)),
+    projects: async context => createProjectsService((context.user.kind === 'guest' ? createSupabaseGuestProjectsSessions : createSupabaseProjectsSessions)(await connect(context.config), context.config)),
     review: async (root, signal, context, result, presentation) => (context.user.kind==='guest'?mountGuestReviewWorkspace:mountMemberReviewWorkspace)(root, {
       client: await connect(context.config), config: context.config, ownerId: context.user.id,
       projectId: result.project.id, original: result.original, signal, ...presentation

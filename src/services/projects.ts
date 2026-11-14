@@ -50,6 +50,11 @@ export function createSupabaseProjectsSessions(client:ProjectsAuthClient,config:
  return createScopedProjectsSessions(client,config,fetcher,'private');
 }
 
+/** Read the already existing guest project; refresh never calls demo provisioning or reset. */
+export function createSupabaseGuestProjectsSessions(client:ProjectsAuthClient,config:Pick<PublicAppConfig,'supabaseUrl'|'supabasePublishableKey'>,fetcher:typeof fetch=globalThis.fetch):ProjectsSessionFactory {
+ return createScopedProjectsSessions(client,config,fetcher,'demo');
+}
+
 export function createGuestDemoService(client:ProjectsAuthClient,config:Pick<PublicAppConfig,'supabaseUrl'|'supabasePublishableKey'>,fetcher:typeof fetch=globalThis.fetch) {
  const begin=createScopedProjectsSessions(client,config,fetcher,'demo');
  async function open(expectedOwner:string,signal:AbortSignal,resetProjectId?:string,resetting=false){

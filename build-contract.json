@@ -743,8 +743,18 @@
       "fail": "A user JWT or a missing/forged secret is denied; permanent projects are never deleted.",
       "test": "SEC-01",
       "status": "planned"
+    },
+    {
+      "path": "src/data/workspace-cache.ts",
+      "phase": "B",
+      "inputs": "Verified backend/owner/kind scope, view bookmark and bounded local ZIP",
+      "outputs": "Account-scoped reopen pointer and local original bytes",
+      "steps": "Remember only view state. Verify authentication first; reread saved project through owner-scoped GET requests. Validate local ZIP/hash before showing. Never provision/reset/save during restoration. Explicit Close dataset or sign-out forgets the pointer.",
+      "fail": "Show a recoverability warning; retain saved server data and separate typed/pending recovery.",
+      "test": "SAVE-02, SEC-01",
+      "status": "implemented"
     }
   ],
-  "applicationFileCount": 67,
+  "applicationFileCount": 68,
   "scopeFrozen": true
 }

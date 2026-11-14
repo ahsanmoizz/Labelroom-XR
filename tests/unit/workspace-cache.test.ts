@@ -1,0 +1,14 @@
+import { describe, it, expect } from 'vitest';
+import { createWorkspaceCache } from '../../src/data/workspace-cache';
+const ownerId='11111111-1111-4111-8111-111111111111',projectId='22222222-2222-4222-8222-222222222222';
+function fixture(){const rows=new Map<string,string>();const storage={getItem:(key:string)=>rows.get(key)??null,setItem:(key:string,value:string)=>rows.set(key,value),removeItem:(key:string)=>rows.delete(key)} as Storage;const scope={backend:'https://example.supabase.co',ownerId,kind:'guest' as const};return{rows,storage,scope,cache:createWorkspaceCache(scope,storage,undefined as any)}}
+const bookmark={schema:'labelxr-open-workspace/v1' as const,kind:'saved' as const,sourceHash:'a'.repeat(64),projectId,reviewOpen:true,frameId:'01',objectId:'object-a',scale:.12};
+describe('Verified-owner workspace bookmarks',()=>{
+ it('retains a saved view through a newly constructed cache without credentials or revision claims',()=>{const f=fixture();f.cache.write(bookmark);expect(createWorkspaceCache(f.scope,f.storage,undefined as any).read()).toEqual(bookmark);expect([...f.rows.values()][0]).not.toMatch(/access_token|refresh_token|revision|secret/i)});
+ it('isolates owners, backends and account kinds',()=>{const f=fixture();f.cache.write(bookmark);for(const change of [{ownerId:projectId},{backend:'https://other.supabase.co'},{kind:'member' as const}])expect(createWorkspaceCache({...f.scope,...change},f.storage,undefined as any).read()).toBeUndefined()});
+ it('explicit close removes only this view pointer',()=>{const f=fixture();f.storage.setItem('unrelated','preserved');f.cache.write(bookmark);f.cache.clear();expect(f.cache.read()).toBeUndefined();expect(f.storage.getItem('unrelated')).toBe('preserved')});
+ it.each([{...bookmark,projectId:undefined},{...bookmark,kind:'local'},{...bookmark,sourceHash:'bad'},{...bookmark,scale:2},{...bookmark,approval:true},{...bookmark,frameId:'x'.repeat(257)}])('rejects corrupt or privileged bookmark content %#',value=>{const f=fixture();expect(()=>f.cache.write(value as any)).toThrow();expect(f.cache.read()).toBeUndefined()});
+ it('a corrupt stored bookmark fails rather than authorizing a replacement project',()=>{const f=fixture();f.cache.write(bookmark);f.rows.set([...f.rows.keys()][0],'{"projectId":"bad"}');expect(()=>f.cache.read()).toThrow()});
+ it('storage failure is surfaced without an in-memory durability claim',()=>{const f=fixture();const c=createWorkspaceCache(f.scope,{...f.storage,setItem(){throw Error('Quota')}} as Storage,undefined as any);expect(()=>c.write(bookmark)).toThrow('Quota')});
+ it('unavailable local source storage refuses a false recovery acknowledgement',async()=>{const f=fixture();await expect(f.cache.saveLocal(new Uint8Array([1]))).rejects.toThrow();await expect(f.cache.loadLocal()).rejects.toThrow()});
+});

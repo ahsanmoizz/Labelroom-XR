@@ -15,6 +15,7 @@ export interface DatasetPanelOptions {
   createView(source: BundleSource, display?: FrameViewSource): DatasetView;
   privateProjects?: boolean;
   load?: (bytes: Uint8Array, name: string) => Promise<BundleSource>;
+  preserveLocal?: (source: BundleSource) => Promise<void>;
 }
 
 /** Local preview only. Source data never becomes an approval or a saved decision. */
@@ -40,7 +41,8 @@ export function mountDatasetPanel(root: HTMLElement, options: DatasetPanelOption
   let closed = false, blocked = false, busy = false, ticket = 0, index = 0, reviewLocked = false;
   let source: BundleSource | undefined, view: DatasetView | undefined;
   let frames: readonly BundleFrame[] = [];
-  const subscribers = new Set<() => void>(), availability = new Set<() => void>(), frameSubscribers = new Set<(id: string) => void>();
+  const subscribers = new Set<() => void>(), availability = new Set<() => void>(), frameSubscribers = new Set<(id: string) => void>(), viewSubscribers = new Set<() => void>();
+  const viewChanged = () => { for (const listener of [...viewSubscribers]) listener(); };
   function notify() { for (const listener of [...subscribers]) { try { listener(); } catch { blocked = true; } } }
   const listeners: (() => void)[] = [];
   function listen(element: HTMLElement, event: string, handler: () => void) {
@@ -85,7 +87,11 @@ export function mountDatasetPanel(root: HTMLElement, options: DatasetPanelOption
       if (bytes.byteLength !== input.size) throw new Error('File size changed.');
       const parsed = await (options.load || loadBundleBytes)(new Uint8Array(bytes), input.name);
       if (closed || id !== ticket) return;
+      let recoverable = true;
+      try { await options.preserveLocal?.(parsed); } catch { recoverable = false; }
+      if (closed || id !== ticket) return;
       present(parsed);
+      if (!recoverable) status.textContent += ' · Browser storage is unavailable; keep the original ZIP to reopen after refresh.';
     } catch {
       if (replacement) { try { replacement.dispose(); } catch { if (!closed) failCleanup(); } }
       if (!closed && id === ticket && !blocked) status.textContent = 'Dataset could not be opened. Check the ZIP and try again.';
@@ -102,19 +108,28 @@ export function mountDatasetPanel(root: HTMLElement, options: DatasetPanelOption
   listen(previous, 'click', () => move(-1)); listen(next, 'click', () => move(1));
   listen(scale, 'input', () => {
     if (closed || blocked || busy || !view) return;
-    try { const n = Number(scale.value); if (!Number.isFinite(n) || n < 0.02 || n > 0.20) throw new Error('Scale'); view.setScale(n); }
+    try { const n = Number(scale.value); if (!Number.isFinite(n) || n < 0.02 || n > 0.20) throw new Error('Scale'); view.setScale(n); viewChanged(); }
     catch { status.textContent = 'Display scale is unavailable.'; }
   });
-  listen(reset, 'click', () => { if (closed || blocked || busy || !view) return; try { view.resetView(); scale.value = '0.02'; describe(); } catch { status.textContent = 'View could not be reset.'; } });
+  listen(reset, 'click', () => { if (closed || blocked || busy || !view) return; try { view.resetView(); scale.value = '0.02'; describe(); viewChanged(); } catch { status.textContent = 'View could not be reset.'; } });
   controls();
   return { element: panel, current: () => closed || blocked || busy ? undefined : source, available: () => !closed && !blocked && !busy && !reviewLocked,
+    viewState: () => source && frames[index] ? { frameId: frames[index].id, scale: Number(scale.value) } : undefined,
+    restoreView(frameId: string, displayScale: number) {
+      if (closed || blocked || busy || !source || !view || !Number.isFinite(displayScale) || displayScale < .02 || displayScale > .20) return;
+      const target = frames.findIndex(frame => frame.id === frameId);
+      if (target >= 0) { view.showFrame(frameId); index = target; }
+      view.setScale(displayScale); scale.value = String(displayScale); describe(); controls();
+      viewChanged();
+    },
     subscribe(listener: () => void) { subscribers.add(listener); return () => { subscribers.delete(listener); }; },
     subscribeAvailability(listener: () => void) { availability.add(listener); return () => { availability.delete(listener); }; },
     subscribeFrame(listener: (id: string) => void) { frameSubscribers.add(listener); return () => { frameSubscribers.delete(listener); }; },
+    subscribeView(listener: () => void) { viewSubscribers.add(listener); return () => { viewSubscribers.delete(listener); }; },
     setReviewLocked(value: boolean) { if (closed || reviewLocked === value) return; reviewLocked = value; controls(); for (const fn of [...availability]) fn(); },
     pick:(ray:Ray)=>!closed&&!blocked&&!busy?view?.pick?.(ray):undefined,
     highlight:(frameId:string,objectId:string)=>{if(!closed&&!blocked&&!busy)view?.select?.(frameId,objectId)},
-    recenter:()=>{if(!closed&&!blocked&&!busy&&view){view.resetView();scale.value='0.02';describe()}},
+    recenter:()=>{if(!closed&&!blocked&&!busy&&view){view.resetView();scale.value='0.02';describe();viewChanged()}},
     focusFrame(id: string,objectId?:string) { if (closed || blocked || busy || !source || !view) return; const target = frames.findIndex(f => f.id === id); if (target < 0) throw new Error('Unknown review frame.'); view.showFrame(id);if(objectId)view.select?.(id,objectId); index = target; describe(); controls(); },
     replaceSaved(display: FrameViewSource, expectedSourceHash: string) {
       if (closed || blocked || busy || !source || !view || source.bundleSha256 !== expectedSourceHash || display.frames.length !== source.frames.length || display.frames.some((f, i) => f.id !== source!.frames[i].id || f.timestamp !== source!.frames[i].timestamp || f.pointCount !== source!.frames[i].pointCount)) throw new Error('Saved view source differs.');
@@ -126,7 +141,7 @@ export function mountDatasetPanel(root: HTMLElement, options: DatasetPanelOption
     dispose() {
     if (closed) return; closed = true; ticket++; busy = false;
     const owned = view; view = undefined; source = undefined; file.value = ''; rights.textContent = ''; status.textContent = '';
-    listeners.forEach(close => close()); subscribers.clear(); availability.clear(); frameSubscribers.clear(); panel.remove();
+    listeners.forEach(close => close()); subscribers.clear(); availability.clear(); frameSubscribers.clear(); viewSubscribers.clear(); panel.remove();
     owned?.dispose();
   } };
 }
