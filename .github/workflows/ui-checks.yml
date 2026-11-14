@@ -1,7 +1,7 @@
 name: UI readability and review regression
 on:
   push:
-    branches: [main, deadline/complete-guest-demo, deadline/ui-readability, deadline/final-acceptance, deadline/auth-entry, deadline/current-guest-check, deadline/session-xr]
+    branches: [main, deadline/complete-guest-demo, deadline/ui-readability, deadline/final-acceptance, deadline/auth-entry, deadline/current-guest-check, deadline/session-xr, deadline/workspace-refocus]
   workflow_dispatch:
 permissions:
   contents: read
@@ -25,6 +25,8 @@ jobs:
       - run: npm run typecheck
       - run: npm test -- --reporter=json --outputFile=artifacts/unit.json
       - run: npx playwright install --with-deps chromium
+      - name: Receipt download and actual Supabase SDK refocus regression
+        run: node scripts/test-browser-focus.mjs "$GITHUB_WORKSPACE/artifacts/focus.json"
       - name: Native browser review and responsive layout checks
         run: node scripts/test-browser-review.mjs "$GITHUB_WORKSPACE/artifacts/browser.json"
         env:
