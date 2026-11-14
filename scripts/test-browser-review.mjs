@@ -7,6 +7,7 @@ import {buildSync} from 'esbuild';
 import {chromium} from 'playwright';
 import {runCases} from '../tests/integration/review-form-browser.mjs';
 import {runLayoutCases,runLiveProbeCases} from '../tests/integration/layout-browser.mjs';
+import {runNavigationCases} from '../tests/integration/navigation-browser.mjs';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const temp=fs.mkdtempSync(path.join(os.tmpdir(),'labelxr-browser-review-'));
 const output=process.argv[2]??path.join(os.tmpdir(),'labelxr-browser-review-'+Date.now()+'.json');
@@ -15,6 +16,7 @@ const sources={
  'src/app/store.ts':['createReviewStore'],
  'src/app/review-workspace.ts':['mountReviewWorkspace','reviewProposalFrameSource','reviewFrameSource'],
  'src/app/dataset-workspace.ts':['createDatasetWorkspace'],
+ 'src/xr/review-system.ts':['createReviewView'],
  'src/services/analysis.ts':['createReviewAnalysisClient'],
  'src/services/reviews.ts':['ReviewServiceError'],
  'src/services/review-snapshots.ts':['createReviewSnapshotService','createSupabaseReviewSnapshotSessions'],
@@ -59,10 +61,11 @@ try{
  const context=await browser.newContext();
  await context.route('**/*',route=>{if(new URL(route.request().url()).origin===origin)return route.continue();blocked++;return route.abort('blockedbyclient');});
  const result=await runCases(context,origin+'/');
+ const navigation=await runNavigationCases(context,origin+'/');
  const layout=await runLayoutCases(context,origin+'/',process.env.LABELXR_LAYOUT_SCREENSHOTS);
  const liveProbeFixtures=await runLiveProbeCases(context,origin+'/');
  if(blocked)throw Error('Unexpected external requests: '+blocked);
- const report={schema:'labelxr-browser-review-regression/v1',...result,layout,liveProbeFixtures,browser:browser.version(),blockedExternalRequests:blocked,backend:'Explicit synthetic local backend; actual DOM, workers and IndexedDB. Layout scene is a labelled placeholder; no GPU/XR result is claimed.',hardwareAcceptance:false};
+ const report={schema:'labelxr-browser-review-regression/v1',...result,navigation,layout,liveProbeFixtures,browser:browser.version(),blockedExternalRequests:blocked,backend:'Explicit synthetic local backend; actual DOM, workers and IndexedDB. Layout scene is a labelled placeholder; no GPU/XR result is claimed.',hardwareAcceptance:false};
  fs.writeFileSync(output,JSON.stringify(report,null,2)+'\n',{flag:'wx'});
  console.log(JSON.stringify({passed:report.passed,count:report.count,browser:report.browser,report:output,externalRequests:blocked}));
 }finally{await browser?.close();await new Promise(resolve=>server.close(resolve));fs.rmSync(temp,{recursive:true,force:true});}
