@@ -1,7 +1,7 @@
 /* Auth-entry styles are intentionally unchanged. This skin exists only inside a verified workspace. */
 #scene-container[data-workbench] { position: fixed; inset: 0; width: 100%; height: 100dvh; padding: 0; overflow: hidden; }
 .workspace-overlay.workspace-shell {
-  position: absolute; inset: 0; width: 100%; height: 100%; padding: 0;
+  position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; pointer-events: auto;
 }
 .workspace-shell {
   --panel: #10171f; --field: #0c151d; --line: #2b3943; --muted: #adbdc8; --accent: #90e3cc;
