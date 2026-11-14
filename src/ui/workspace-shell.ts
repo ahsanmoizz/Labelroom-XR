@@ -158,7 +158,7 @@ export function mountWorkspaceShell(options: Options) {
     const selection = found?.querySelector<HTMLSelectElement>('[aria-label="Review object"]');
     const selectedName = selection?.selectedOptions[0]?.textContent; selected.hidden = !selectedName;
     if (selectedName) text(selected, selectedName);
-    text(mode, snapshot ? options.guest ? 'Private guest demo' : 'Private project' : source ? 'Local dataset preview' : 'No dataset loaded');
+    text(mode, snapshot ? options.guest ? 'Private guest demo' : 'Private project' : source ? 'Dataset preview' : 'No dataset loaded');
     text(revision, snapshot ? `Saved revision ${snapshot.revision}` : 'No saved review open');
     const consent = found?.querySelector<HTMLInputElement>('[aria-label="Allow AI inspection for this project"]');
     text(aiState, consent?.checked ? 'AI consent selected' : 'AI consent off');
