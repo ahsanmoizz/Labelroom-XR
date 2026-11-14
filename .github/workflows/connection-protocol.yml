@@ -1,0 +1,27 @@
+name: Connection checker browser protocol regression
+on:
+  push:
+    branches: [deadline/connection-protocol]
+permissions:
+  contents: read
+jobs:
+  browser-cors:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f
+        with:
+          node-version: 24.19.0
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npx playwright install --with-deps chromium
+      - run: node tests/integration/connection-cors-browser.mjs artifacts/cors.json
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        if: always()
+        with:
+          name: connection-protocol-${{ github.sha }}
+          path: artifacts/cors.json
+          retention-days: 3
