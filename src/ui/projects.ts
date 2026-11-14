@@ -76,5 +76,11 @@ export function mountPrivateProjectsPanel(root: HTMLElement, options: ProjectsPa
   const unsubscribeAvailability = options.preview.subscribeAvailability?.(update);
   function dispose() { if (closed) return; closed = true; generation++; active?.abort(); active = undefined; unsubscribe(); unsubscribeAvailability?.(); options.signal.removeEventListener('abort', dispose); listeners.splice(0).forEach(close => close()); rowListeners.splice(0).forEach(close => close()); items = []; pendingDeletes.clear(); pending = undefined; loaded = undefined; armed = undefined; rows.replaceChildren(); panel.remove(); }
   options.signal.addEventListener('abort', dispose, { once: true }); if (options.signal.aborted) dispose(); else update();
-  return { dispose };
+  return { dispose, reopened(project: PrivateProject) {
+    if (closed || options.signal.aborted) return;
+    const source=options.preview.current();
+    if (!source || project.status!=='ready' || project.source_hash!==source.bundleSha256 || project.source_bytes!==source.getOriginalZipBytes().length) throw new Error('Reopened project source differs.');
+    loaded=project.id;pending=undefined;armed=undefined;items=[project,...items.filter(item=>item.id!==project.id)];
+    status.textContent=`Reopened project ${project.id.slice(0,8)} at revision ${project.current_revision}.`;render();
+  } };
 }

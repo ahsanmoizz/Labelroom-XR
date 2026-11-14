@@ -164,6 +164,7 @@ export function createDatasetWorkspace(load: () => Promise<WorldFactory>, adapte
         presenting=true;
         try { closeReview(); preview.show(result.original,projectPreview(result)); if(bookmark.reviewOpen)startReview(result,restore); else preview.restoreView(bookmark.frameId,bookmark.scale); }
         finally { presenting=false; }
+        if (restore && context?.user.kind==='member') projects?.reopened(result.project);
         closeDataset.disabled=false; remember();
       }
       let savedProjects: Promise<ProjectsService> | undefined;

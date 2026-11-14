@@ -38,7 +38,9 @@ export function createWorkspaceCache(scope: { backend: string; ownerId: string; 
       let tx: IDBTransaction;
       try { tx = db.transaction('sources', mode); } catch { db.close(); reject(Error('Local preview recovery is unavailable.')); return; }
       const timer = setTimeout(() => { try { tx.abort(); } catch { /* Completion wins. */ } }, 5000);
-      const request = work(tx.objectStore('sources'));
+      let request: IDBRequest<T>;
+      try { request = work(tx.objectStore('sources')); }
+      catch { clearTimeout(timer); try { tx.abort(); } catch { /* The transaction may already have aborted. */ } db.close(); reject(Error('Local preview recovery is unavailable.')); return; }
       tx.oncomplete = () => { clearTimeout(timer); db.close(); resolve(request.result); };
       tx.onabort = tx.onerror = () => { clearTimeout(timer); db.close(); reject(Error('Local preview recovery is unavailable.')); };
     });
