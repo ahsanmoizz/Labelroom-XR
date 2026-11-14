@@ -11,7 +11,7 @@ const held=new Promise(r=>{release=r});
 const raw=new Uint8Array(await(await fetch('/source.zip')).arrayBuffer()),members=api.unzipSync(raw);
 const manifest=JSON.parse(new TextDecoder().decode(members['manifest.json'])),labels=JSON.parse(new TextDecoder().decode(members['labels.openlabel.json']));
 const old=manifest.frames[0],firstId=old.id;
-manifest.frames.push({...old,id:'1',timestamp:.1,pcd:'frames/reload.pcd'});members['frames/reload.pcd']=members[old.pcd];
+manifest.frames.push({...old,id:'1',timestamp:.1,pcd:'frames/001.pcd'});members['frames/001.pcd']=members[old.pcd];
 labels.openlabel.frames['1']=clone(labels.openlabel.frames[firstId]);labels.openlabel.frames['1'].frame_properties.timestamp=.1;
 members['labels.openlabel.json']=json(labels);manifest.hashes['labels.openlabel.json']=[...new Uint8Array(await crypto.subtle.digest('SHA-256',members['labels.openlabel.json']))].map(x=>x.toString(16).padStart(2,'0')).join('');members['manifest.json']=json(manifest);
 const source=await api.loadBundleBytes(api.zipSync(members,{mtime:new Date('2026-01-01T00:00:00Z')}));
