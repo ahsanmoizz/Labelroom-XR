@@ -3,7 +3,7 @@ import * as api from './bridge.mjs';
 const ownerA='22222222-2222-4222-8222-222222222222',ownerB='33333333-3333-4333-8333-333333333333',project='00000000-0000-4000-8000-000000000002';
 const rid=n=>'99999999-9999-4999-8999-'+String(n).padStart(12,'0'),clone=structuredClone,json=v=>new TextEncoder().encode(JSON.stringify(v));
 const assert={equal(a,b){if(a!==b)throw Error('Synthetic revision differs')}};
-const stored=(key,fallback)=>JSON.parse(localStorage.getItem(key)??JSON.stringify(fallback));
+const stored=(key,fallback)=>{const raw=localStorage.getItem(key);return raw===null?fallback:JSON.parse(raw)};
 const counts=stored('synthetic-reload-counts',{provisions:0,projectReads:0,commits:0,resets:0,worlds:0,aiContexts:0,modelCalls:0,consentWrites:0});
 const count=k=>{counts[k]++;localStorage.setItem('synthetic-reload-counts',JSON.stringify(counts))};
 let owner=stored('synthetic-reload-owner',ownerA),deny=false,first=true,release;
