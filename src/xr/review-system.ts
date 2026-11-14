@@ -14,9 +14,9 @@ export function createReviewView(world: Pick<World,'createTransformEntity'> & Pa
   const pointGeometry=new BufferGeometry(), boxGeometry=new BufferGeometry();
   pointGeometry.setAttribute('position',pointPositions); boxGeometry.setAttribute('position',boxPositions);
   const selectedPositions=new BufferAttribute(new Float32Array(72),3),selectedGeometry=new BufferGeometry();selectedGeometry.setAttribute('position',selectedPositions);selectedGeometry.setDrawRange(0,0);
-  const selectedMaterial=new LineBasicMaterial({color:0xffc45c,depthTest:false}),selectedLines=new LineSegments(selectedGeometry,selectedMaterial);selectedLines.renderOrder=2;
-  const pointMaterial=new PointsMaterial({color:0xb9eaff,size:1.5,sizeAttenuation:false});
-  const boxMaterial=new LineBasicMaterial({color:0x80e1d5});
+  const selectedMaterial=new LineBasicMaterial({color:0x90e3cc,depthTest:false}),selectedLines=new LineSegments(selectedGeometry,selectedMaterial);selectedLines.renderOrder=2;
+  const pointMaterial=new PointsMaterial({color:0xdcebf1,size:1.5,sizeAttenuation:false});
+  const boxMaterial=new LineBasicMaterial({color:0x4d9b8c});
   const points=new Points(pointGeometry,pointMaterial), boxes=new LineSegments(boxGeometry,boxMaterial), group=new Group();
   group.name='LabelRoom read-only dataset'; group.add(points,boxes,selectedLines);
   let entity: ReturnType<World['createTransformEntity']> | undefined, closed=false, current='', selected='';

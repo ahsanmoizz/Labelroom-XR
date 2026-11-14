@@ -17,7 +17,8 @@ buildSync({stdin: {contents, resolveDir: root}, bundle: true, format: 'esm', pla
 const assets = new Map([
   ['/auth-bridge.mjs', [fs.readFileSync(path.join(temp, 'bridge.mjs')), 'text/javascript']],
   ['/auth-fixture.mjs', [fs.readFileSync(path.join(root, 'tests/integration/auth-browser-fixture.mjs')), 'text/javascript']],
-  ['/workspace.css', [fs.readFileSync(path.join(root, 'src/ui/workspace.css')), 'text/css']],
+  ['/workbench.css',[fs.readFileSync(path.join(root,'src/ui/workbench.css')),'text/css']],
+ ['/workspace.css', [fs.readFileSync(path.join(root, 'src/ui/workspace.css')), 'text/css']],
   ['/brand-mark.svg', [fs.readFileSync(path.join(root, 'public/brand-mark.svg')), 'image/svg+xml']],
   ['/review-scene.svg', [fs.readFileSync(path.join(root, 'public/review-scene.svg')), 'image/svg+xml']],
   ['/', [Buffer.from('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Auth layout fixture · no live provider</title><link rel="stylesheet" href="/workspace.css"></head><body><aside id="account-container" aria-label="Account access"></aside><script type="module" src="/auth-fixture.mjs"></script></body></html>'), 'text/html']]

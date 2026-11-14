@@ -17,6 +17,7 @@ import type {SpatialReviewPort} from '../ui/spatial-review-port';
 import {mountSpatialReview} from '../xr/spatial-review';
 import { mountWorkspaceTools } from '../ui/workspace-tools';
 import { mountXrEntry } from '../ui/xr-entry';
+import { mountWorkspaceShell } from '../ui/workspace-shell';
 
 export interface OwnedReviewWorkspace extends WorkspaceResource {
   selectFrame?(id: string): void;
@@ -54,6 +55,7 @@ export function createDatasetWorkspace(load: () => Promise<WorldFactory>, adapte
     let projects: ReturnType<typeof mountPrivateProjectsPanel> | undefined;
     let menus: ReturnType<typeof mountWorkspaceTools> | undefined;
     let xrEntry: ReturnType<typeof mountXrEntry> | undefined;
+    let shell: ReturnType<typeof mountWorkspaceShell>;
     let spatial: WorkspaceResource | undefined;
     let review: OwnedReviewWorkspace | undefined, reviewController: AbortController | undefined;
     let reviewClose: HTMLButtonElement | undefined, reviewNotice: HTMLElement | undefined;
@@ -70,7 +72,7 @@ export function createDatasetWorkspace(load: () => Promise<WorldFactory>, adapte
       if (closed) { if (cleanupFailed) throw new WorkspaceCleanupError(); return; }
       closed = true; signal.removeEventListener('abort', onAbort);
       const p = panel, w = worldOwner, privateProjects = projects; panel = undefined; worldOwner = undefined; projects = undefined;
-      for (const close of [() => xrEntry?.dispose(), () => menus?.dispose(), () => { unsubscribeDataset?.(); unsubscribeFrame?.(); closeReview(); }, () => privateProjects?.dispose(), () => p?.dispose(), () => w?.dispose(), () => overlay.remove(), () => scene.remove()]) {
+      for (const close of [() => shell?.dispose(), () => xrEntry?.dispose(), () => menus?.dispose(), () => { unsubscribeDataset?.(); unsubscribeFrame?.(); closeReview(); }, () => privateProjects?.dispose(), () => p?.dispose(), () => w?.dispose(), () => overlay.remove(), () => scene.remove()]) {
         try { close(); } catch { cleanupFailed = true; }
       }
       if (cleanupFailed) throw new WorkspaceCleanupError();
@@ -88,6 +90,9 @@ export function createDatasetWorkspace(load: () => Promise<WorldFactory>, adapte
       menus = mountWorkspaceTools(overlay, panel.element, doc.getElementById?.('account-container') || undefined, context?.user.kind === 'guest');
       const preview = panel;
       if (context && typeof world.launchXR === 'function') xrEntry = mountXrEntry(menus.element, world as Parameters<typeof mountXrEntry>[1], signal, () => !!preview.current());
+      shell = mountWorkspaceShell({container, scene, overlay, panel: preview.element, toolbar: menus.element,
+        account: doc.getElementById?.('account-container') || undefined, guest: context?.user.kind === 'guest',
+        source: preview.current, snapshot: () => review?.store?.snapshot(), world: world as unknown as Parameters<typeof mountWorkspaceShell>[0]['world']});
       function startReview(result: OpenedProject) {
         closeReview();
         if (!adapters.review || !context || closed || signal.aborted) return;

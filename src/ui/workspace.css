@@ -1,3 +1,4 @@
+@import './workbench.css';
 /* Shared screen UI. Review commands and XR scene data are independent of presentation. */
 :root {
   color-scheme: dark;

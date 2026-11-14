@@ -85,7 +85,11 @@ window.labelxrBrowser.exerciseLiveProbe=async mode=>{
    config.expectedGuest={ownerId:discovery.ownerId,projectId:mode==='bind-stale-project'?'33333333-3333-4333-8333-333333333333':discovery.projectId,revision:discovery.revision,versionSha256:mode==='bind-stale-version'?'0'.repeat(64):discovery.cases.find(x=>x.name==='own-initial-version').bodySha256,historySha256:discovery.cases.find(x=>x.name==='own-initial-history').bodySha256,labelsSha256:discovery.labelsSha256};
   }
  }
- if(mode==='review-closed-after-discovery')document.querySelector('.dataset-panel > button').click();
+ if(mode==='review-closed-after-discovery'){
+  const close=[...document.querySelectorAll('.dataset-panel button')].find(button=>button.textContent==='Close review');
+  if(!close)throw Error('Mounted Close review control is missing');
+  close.click();
+ }
  const receipt=['discover-only','ready-discovery',...waitingModes].includes(mode)?discovery:await runLive({...config,...(prior?{resumeReceipt:prior}:{})},env);
  return{receipt,state:state(),offers,downloads:current.downloads.length,prior,blocked,blockedRevision,discovery,openClicks};
 };
