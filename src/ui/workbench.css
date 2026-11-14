@@ -1,9 +1,10 @@
 /* Auth-entry styles are intentionally unchanged. This skin exists only inside a verified workspace. */
 #scene-container[data-workbench] { position: fixed; inset: 0; width: 100%; height: 100dvh; padding: 0; overflow: hidden; }
-.workspace-shell {
+.workspace-overlay.workspace-shell {
   --panel: #10171f; --field: #0c151d; --line: #2b3943; --muted: #adbdc8; --accent: #90e3cc;
   display: grid; grid-template: 64px minmax(0, 1fr) 32px / 76px minmax(0, 1fr) minmax(390px, 440px);
   grid-template-areas: 'header header header' 'rail stage inspector' 'footer footer footer';
+  position: absolute; inset: 0; width: 100%; height: 100%; padding: 0;
   background: #080e14; color: #edf4fa; pointer-events: auto; min-width: 0; overflow: hidden;
 }
 .workspace-shell:has(.dataset-panel[hidden]) { grid-template-columns: 76px minmax(0, 1fr) 0; }
@@ -33,7 +34,7 @@
 .workbench-viewport { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
 .workspace-shell .workspace-scene { position: absolute; inset: 0; width: 100%; height: 100%; min-height: 0; }
 .workspace-shell .workspace-scene canvas { width: 100% !important; height: 100% !important; max-width: 100%; max-height: 100%; }
-.workbench-dock { padding: 12px 24px 16px; }
+.workbench-dock { width: min(100%, 1000px); justify-self: center; padding: 12px 24px 16px; }
 .workspace-shell .dataset-controls { display: grid; grid-template-columns: minmax(96px, 1fr) minmax(90px, 1.1fr) minmax(96px, 1fr) minmax(90px, 1fr); gap: 12px; align-items: center; padding: 12px; border: 1px solid #273945; border-radius: 8px; background: #0d1720; }
 .workspace-shell .dataset-controls > button { font-size: 13px; min-height: 48px; padding: 9px 10px; }
 .workspace-shell .dataset-controls > label { grid-column: 1 / -1; display: grid; grid-template-columns: auto minmax(80px, 1fr) 40px; align-items: center; gap: 16px; margin: 0; color: #adbdc8; font-size: 12px; }
@@ -42,9 +43,9 @@
 .workbench-scale-value { color: var(--accent); font-variant-numeric: tabular-nums; }
 .workspace-shell .dataset-panel { grid-area: inspector; position: relative; inset: auto; width: 100%; max-width: none; height: 100%; max-height: none; padding: 0; border: 0; border-left: 1px solid var(--line); border-radius: 0; overflow-x: hidden; overflow-y: auto; scrollbar-gutter: stable; background: #10171f; }
 .inspector-tabs { display: grid; grid-template-columns: 1.05fr 1fr 1fr 1.1fr .65fr; position: sticky; top: 0; z-index: 4; min-width: 0; padding: 0 14px; border-bottom: 1px solid var(--line); background: #10171f; }
-.workspace-shell .inspector-tab { padding: 10px 3px; min-height: 48px; border: 0; border-radius: 0; border-bottom: 2px solid transparent; background: transparent; color: #adbdc8; font-size: 13px; }
-.workspace-shell .inspector-tab[aria-selected='true'] { color: var(--accent); border-bottom-color: var(--accent); font-weight: 650; }
-.workspace-shell .inspector-tab:disabled { color: #617580; background: transparent; }
+.workspace-shell .inspector-tabs .inspector-tab { padding: 10px 3px; min-height: 48px; border: 0; border-radius: 0; border-bottom: 2px solid transparent; background: transparent; color: #adbdc8; font-size: 13px; }
+.workspace-shell .inspector-tabs .inspector-tab[aria-selected='true'] { color: var(--accent); border-bottom-color: var(--accent); font-weight: 650; }
+.workspace-shell .inspector-tabs .inspector-tab:disabled { color: #617580; background: transparent; }
 .workspace-shell .dataset-panel > .inspector-pane, .workspace-shell .review-panel > .inspector-pane { margin: 0; padding: 22px; border: 0; }
 .workspace-shell .dataset-panel > .review-panel { margin: 0; padding: 0; border: 0; }
 .workspace-shell .dataset-panel h2 { font-size: 20px; }
@@ -78,6 +79,7 @@
 .workspace-shell :is(button,input,select,textarea,summary,a):focus-visible { outline: 3px solid #b0f8e4; outline-offset: 3px; }
 .workbench-status { grid-area: footer; display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 4px 20px; border-top: 1px solid var(--line); background: #0c151e; color: #9eb2bf; font-size: 11px; }
 #account-container[data-workbench-account] { inset: 80px auto auto 88px; width: min(320px, calc(100% - 106px)); max-height: calc(100dvh - 112px); z-index: 9; }
+#account-container[data-workbench-account] .account-card { background: #10171f; border-color: #2b3943; border-radius: 8px; }
 @media (max-width: 1150px) {
   .workspace-shell { grid-template-columns: 66px minmax(0, 1fr) 390px; }
   .workspace-shell .workspace-toolbar { width: 66px; }

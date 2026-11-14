@@ -91,9 +91,10 @@ export function mountWorkspaceShell(options: Options) {
   }
   const xr = toolbar.querySelector<HTMLElement>('.workspace-xr-entry'); if (xr) headerActions.append(xr);
   const paths = ['M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z', 'M20 21v-2a7 7 0 0 0-14 0v2M17 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0', 'M8 3H3v5M16 3h5v5M21 16v5h-5M8 21H3v-5M8 12h8M12 8v8', 'M9 9a3 3 0 1 1 4 3c-1 0-1 1-1 2M12 18h.01M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0'];
+  const railIcons = new Map<HTMLButtonElement, SVGSVGElement>();
   [...toolbar.querySelectorAll<HTMLButtonElement>(':scope > button')].forEach((button, index) => {
     const icon = doc.createElementNS('http://www.w3.org/2000/svg', 'svg'); icon.setAttribute('viewBox', '0 0 24 24'); icon.setAttribute('aria-hidden', 'true'); icon.setAttribute('class', 'workbench-rail-icon');
-    const path = doc.createElementNS('http://www.w3.org/2000/svg', 'path'); path.setAttribute('d', paths[index] ?? paths[0]); icon.append(path); button.prepend(icon);
+    const path = doc.createElementNS('http://www.w3.org/2000/svg', 'path'); path.setAttribute('d', paths[index] ?? paths[0]); icon.append(path); button.prepend(icon); railIcons.set(button, icon);
   });
   function classify(el: HTMLElement): Tab {
     if (el.matches('[aria-label="Automatic label checks"]')) return 'checks';
@@ -131,6 +132,7 @@ export function mountWorkspaceShell(options: Options) {
   }
   function sync() {
     if (closed) return;
+    for (const [button, icon] of railIcons) if (icon.parentElement !== button) button.prepend(icon);
     const found = panel.querySelector<HTMLElement>('.review-panel');
     if (found) arrangeReview(found);
     else if (review) {
@@ -176,6 +178,7 @@ export function mountWorkspaceShell(options: Options) {
   panel.addEventListener('click', activated); panel.addEventListener('input', sync); panel.addEventListener('change', sync);
   const observer = new win.MutationObserver(sync);
   observer.observe(panel, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['hidden', 'disabled'] });
+  observer.observe(toolbar, { childList: true, subtree: true });
   function resize() {
     if (closed) return;
     const target = win!.matchMedia('(max-width: 900px)').matches ? datasetPane : datasetControls;

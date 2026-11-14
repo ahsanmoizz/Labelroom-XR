@@ -35,7 +35,7 @@ export async function runLayoutCases(context, url, screenshots) {
    }
    for(const m of measured){
     assert(m.pageWidth<=m.clientWidth+1,'Horizontal document overflow');assert(m.panelScrollWidth<=m.panelClientWidth+1,'Horizontal inspector overflow');
-    assert(m.panel.x>=0&&m.panel.right<=width+1&&m.panel.bottom<=height+1,'Inspector escapes viewport');assert.equal(m.overlaps.length,0,'Actions overlap');
+    assert(m.panel.x>=0&&m.panel.right<=width+1&&m.panel.bottom<=height+1,'Inspector escapes viewport '+JSON.stringify({width,height,panel:m.panel}));assert.equal(m.overlaps.length,0,'Actions overlap');
     for(const f of m.fields){assert(f.rect.height>=47&&f.font>=16,'Field too small: '+f.label);assert(f.rect.x>=m.panel.x&&f.rect.right<=m.panel.right+1,'Field escapes inspector');}
     for(const b of m.buttons)assert(b.rect.height>=47&&b.rect.width>=44,'Button too small: '+b.text);
    }
