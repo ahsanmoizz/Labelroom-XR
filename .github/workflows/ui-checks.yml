@@ -25,6 +25,8 @@ jobs:
       - run: npm run typecheck
       - run: npm test -- --reporter=json --outputFile=artifacts/unit.json
       - run: npx playwright install --with-deps chromium
+      - name: Receipt download and actual Supabase SDK refocus regression
+        run: node scripts/test-browser-focus.mjs "$GITHUB_WORKSPACE/artifacts/focus.json"
       - name: Native browser review and responsive layout checks
         run: node scripts/test-browser-review.mjs "$GITHUB_WORKSPACE/artifacts/browser.json"
         env:
@@ -33,8 +35,6 @@ jobs:
         run: node scripts/test-browser-auth.mjs "$GITHUB_WORKSPACE/artifacts/auth.json"
         env:
           LABELXR_AUTH_SCREENSHOTS: ${{ github.workspace }}/artifacts/auth-captures
-      - name: Receipt download and actual Supabase SDK refocus regression
-        run: node scripts/test-browser-focus.mjs "$GITHUB_WORKSPACE/artifacts/focus.json"
       - name: Restored account and actual SDK World manual XR lifecycle
         run: node scripts/test-browser-session.mjs "$GITHUB_WORKSPACE/artifacts/session.json"
       - name: Actual WebXR emulator and native hand event integration

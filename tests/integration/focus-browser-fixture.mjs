@@ -1,6 +1,6 @@
 // Actual SDK auth/host/review controllers; explicitly synthetic provider, source and scene adapter.
 import {createClient,createSupabaseAuthPort,createApplicationHost,createDatasetWorkspace,mountReviewWorkspace,loadBundleBytes,validateReviewSnapshot} from './focus-bridge.mjs';
-const guest='22222222-2222-4222-8222-222222222222',other='33333333-3333-4333-8333-333333333333',project='44444444-4444-4444-8444-444444444444';
+const guest='22222222-2222-4222-8222-222222222222',other='33333333-3333-4333-8333-333333333333',project=crypto.randomUUID();
 let owner=guest,deny=false,sequence=0,reviewNode,reviewResource;
 const counts={workspaceOpens:0,workspaceDisposals:0,demoOpens:0,commits:0,userRequests:0,refreshRequests:0,visibilityDispatches:0,sdkEvents:[]};
 const user=()=>({id:owner,role:'authenticated',is_anonymous:true,aud:'authenticated',email:'',app_metadata:{provider:'anonymous',providers:['anonymous']},user_metadata:{},created_at:'2026-01-01T00:00:00Z'});
