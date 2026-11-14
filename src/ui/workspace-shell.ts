@@ -98,7 +98,7 @@ export function mountWorkspaceShell(options: Options) {
   function classify(el: HTMLElement): Tab {
     if (el.matches('[aria-label="Automatic label checks"]')) return 'checks';
     if (el.matches('.ai-panel')) return 'ai';
-    if (el.matches('[aria-label="Typed edit recovery"]')) return 'history';
+    if (el.matches('[aria-label="Typed edit recovery"]')) return 'review';
     return 'review';
   }
   function arrangeReview(found: HTMLElement) {
@@ -117,6 +117,12 @@ export function mountWorkspaceShell(options: Options) {
         }
         child.remove();
       } else panes.get(classify(child))!.append(child);
+    }
+    const body = panes.get('review')!, selectionFields = body.querySelector<HTMLElement>('.review-selection');
+    if (selectionFields && selectionFields.children.length > 2) {
+      const reasons = make('div', 'review-selection workbench-review-reasons');
+      reasons.append(...Array.from(selectionFields.children).slice(2));
+      body.insertBefore(reasons, body.querySelector('.review-action-group'));
     }
     const close = Array.from(panel.querySelectorAll<HTMLButtonElement>('button')).find(b => b.textContent === 'Close review');
     if (close && close.parentElement !== panes.get('review')) { close.classList.add('workbench-close-review'); panes.get('review')!.append(close); }
