@@ -1,5 +1,5 @@
 // Actual SDK auth/host/review controllers; explicitly synthetic provider, source and scene adapter.
-import {createClient,createSupabaseAuthPort,createApplicationHost,createDatasetWorkspace,mountReviewWorkspace,loadBundleBytes,validateReviewSnapshot} from './focus-bridge.mjs';
+import {createClient,createSupabaseAuthPort,createApplicationHost,createDatasetWorkspace,mountReviewWorkspace,loadBundleBytes,validateReviewSnapshot,createIndexedDbDraftCache} from './focus-bridge.mjs';
 const guest='22222222-2222-4222-8222-222222222222',other='33333333-3333-4333-8333-333333333333',project=crypto.randomUUID();
 let owner=guest,deny=false,sequence=0,reviewNode,reviewResource;
 const counts={workspaceOpens:0,workspaceDisposals:0,demoOpens:0,commits:0,userRequests:0,refreshRequests:0,visibilityDispatches:0,sdkEvents:[]};
@@ -27,7 +27,7 @@ const open=createDatasetWorkspace(async()=>async container=>{
   const scope={ownerId:context.user.id,projectId:project,sourceBundleSha256:original.bundleSha256};
   const head={id:project,owner_id:context.user.id,status:'ready',source_hash:original.bundleSha256,source_bytes:original.getOriginalZipBytes().length,current_revision:0};
   const snapshot=validateReviewSnapshot(scope,original,head,{project_id:project,revision:0,label_doc:original.labelsDocument,review_verdicts:{}},[]);
-  reviewResource=mountReviewWorkspace(root,{scope,original,signal,load:async()=>snapshot,commit:async()=>{counts.commits++;throw Error('Synthetic focus test must not commit')},...presentation});
+  reviewResource=mountReviewWorkspace(root,{scope,original,signal,cache:createIndexedDbDraftCache(),load:async()=>snapshot,commit:async()=>{counts.commits++;throw Error('Synthetic focus test must not commit')},...presentation});
   reviewNode=root.querySelector('.review-panel');return reviewResource;
  }});
 const host=createApplicationHost({statusRoot:document.getElementById('setup-status'),accountRoot:document.getElementById('account-container'),privateRoot:document.getElementById('scene-container'),connect:async()=>port,

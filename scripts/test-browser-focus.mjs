@@ -8,7 +8,7 @@ import {buildSync} from 'esbuild';
 import {chromium} from 'playwright';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),temporary=fs.mkdtempSync(path.join(os.tmpdir(),'labelxr-focus-'));
 const output=process.argv[2];if(!output||!path.isAbsolute(output)||fs.existsSync(output))throw Error('Pass a new absolute report path.');
-const contents=`export {createClient} from '@supabase/supabase-js';export {createSupabaseAuthPort} from './src/services/auth.ts';export {createApplicationHost} from './src/app/host.ts';export {createDatasetWorkspace} from './src/app/dataset-workspace.ts';export {mountReviewWorkspace} from './src/app/review-workspace.ts';export {loadBundleBytes} from './src/data/bundle.ts';export {validateReviewSnapshot} from './src/domain/review-snapshot.ts';`;
+const contents=`export {createClient} from '@supabase/supabase-js';export {createSupabaseAuthPort} from './src/services/auth.ts';export {createApplicationHost} from './src/app/host.ts';export {createDatasetWorkspace} from './src/app/dataset-workspace.ts';export {mountReviewWorkspace} from './src/app/review-workspace.ts';export {loadBundleBytes} from './src/data/bundle.ts';export {validateReviewSnapshot} from './src/domain/review-snapshot.ts';export {createIndexedDbDraftCache} from './src/data/draft-cache.ts';`;
 buildSync({stdin:{contents,resolveDir:root},bundle:true,format:'esm',platform:'browser',target:'esnext',define:{'import.meta.env.DEV':'false'},outfile:path.join(temporary,'bridge.mjs'),logLevel:'silent'});
 const assets=new Map([
  ['/focus-bridge.mjs',[fs.readFileSync(path.join(temporary,'bridge.mjs')),'text/javascript']],
