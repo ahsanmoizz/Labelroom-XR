@@ -7,6 +7,8 @@ export type AuthIssue = 'not-ready' | 'busy' | 'cooldown' | 'invalid-email' | 'i
 export type AuthPhase = 'checking-session' | 'signed-out' | 'sending-code' | 'awaiting-code' |
   'verifying-code' | 'entering-demo' | 'signed-in' | 'signing-out' | 'blocked' | 'disposed';
 export interface AuthIdentity { readonly id: string; readonly anonymous: boolean; readonly email: string | null }
+/** SDK event hint only; never a replacement for server-verified identity or request authorization. */
+export interface AuthEventIdentity { readonly id: string; readonly anonymous: boolean }
 export interface AuthResult { readonly ok: boolean; readonly issue: AuthIssue | null }
 export interface AuthState {
   readonly phase: AuthPhase;
@@ -21,7 +23,7 @@ export interface AuthPort {
   verifyCode(email: string, token: string): Promise<Attempt>;
   enterGuest(captchaToken: string): Promise<Attempt>;
   signOut(): Promise<Readonly<{ ok: boolean }>>;
-  listen(callback: (event: string) => void): () => void;
+  listen(callback: (event: string, identity?: AuthEventIdentity) => void): () => void;
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -75,7 +77,13 @@ export function createSupabaseAuthPort(client: SupabaseClient): AuthPort {
     },
     async signOut() { const { error } = await client.auth.signOut({ scope: 'local' }); return { ok: error === null }; },
     listen(callback) {
-      const { data } = client.auth.onAuthStateChange(event => callback(event));
+      const { data } = client.auth.onAuthStateChange((event, session) => {
+        const user = session?.user;
+        // Forward only the bounded identity hint, never tokens, email or user metadata.
+        if (user && UUID.test(user.id) && user.role === 'authenticated' && typeof user.is_anonymous === 'boolean') {
+          callback(event, Object.freeze({ id: user.id, anonymous: user.is_anonymous }));
+        } else callback(event);
+      });
       return () => data.subscription.unsubscribe();
     }
   };
@@ -96,6 +104,7 @@ export function createAuthService(port: AuthPort, dependencies: {
   let active: Promise<AuthResult> | null = null, logout: Promise<AuthResult> | null = null;
   let lastTime = 0, resendAt = 0, refreshWanted = false, scheduled = false;
   let unsubscribe: (() => void) | undefined;
+  let retainForRefresh: AuthState['user'] = null;
   function time() { try { const value = now(); if (Number.isFinite(value)) lastTime = Math.max(lastTime, value); } catch { /* Cooldown never moves backwards. */ } return lastTime; }
   function getState(): AuthState {
     return Object.freeze({ phase, user, issue, resendAfterSeconds: Math.max(0, Math.ceil((resendAt - time()) / 1000)) });
@@ -103,7 +112,7 @@ export function createAuthService(port: AuthPort, dependencies: {
   function emit() { const state = getState(); for (const listener of [...listeners]) { try { listener(state); } catch { /* Observers cannot change auth state. */ } } }
   function set(next: AuthPhase, reason: AuthIssue | null = null) { if (blocked && next !== 'disposed') return; phase = next; issue = reason; emit(); }
   function clear() {
-    user = null;
+    user = null; retainForRefresh = null;
     try { dependencies.clearPrivateData(); return true; }
     catch { blocked = true; phase = 'blocked'; issue = 'privacy-reset-failed'; emit(); return false; }
   }
@@ -120,7 +129,11 @@ export function createAuthService(port: AuthPort, dependencies: {
       scheduled = false;
       if (!refreshWanted || disposed || blocked || lockedOut || active || logout) return;
       refreshWanted = false;
-      void restore();
+      const retained = retainForRefresh; retainForRefresh = null;
+      if (retained && phase === 'signed-in' && user?.id === retained.id && user.kind === retained.kind) {
+        // Reconfirm the already verified owner without retiring its DOM, world, drafts or previews.
+        void run(epoch => read(epoch, { id: retained.id, anonymous: retained.kind === 'guest' }, true));
+      } else void restore();
     }); } catch { scheduled = false; refreshWanted = false; if (clear()) set('signed-out', 'session-unavailable'); }
   }
   function run(work: (epoch: number) => Promise<AuthResult>): Promise<AuthResult> {
@@ -135,7 +148,7 @@ export function createAuthService(port: AuthPort, dependencies: {
     void task.finally(() => { if (active === task) active = null; scheduleRefresh(); });
     return task;
   }
-  async function read(epoch: number, expected?: { id: string; anonymous: boolean; email?: string }): Promise<AuthResult> {
+  async function read(epoch: number, expected?: { id: string; anonymous: boolean; email?: string }, retainWorkspace = false): Promise<AuthResult> {
     const revision = identityRevision;
     refreshWanted = false;
     let response: Awaited<ReturnType<AuthPort['readIdentity']>>;
@@ -153,7 +166,9 @@ export function createAuthService(port: AuthPort, dependencies: {
       (expected.email !== undefined && emailValue(response.user.email) !== expected.email))) {
       if (clear()) set('signed-out', 'session-unavailable'); return answer(blocked ? 'privacy-reset-failed' : 'session-unavailable');
     }
-    if (!clear()) return answer('privacy-reset-failed');
+    const sameVerifiedOwner = retainWorkspace && user?.id === response.user.id &&
+      user.kind === (response.user.anonymous ? 'guest' : 'member') && phase === 'signed-in';
+    if (!sameVerifiedOwner && !clear()) return answer('privacy-reset-failed');
     if (!current(epoch) || revision !== identityRevision) return answer(disposed ? 'disposed' : 'cancelled');
     user = Object.freeze({ id: response.user.id, kind: response.user.anonymous ? 'guest' : 'member' });
     set('signed-in'); return answer(current(epoch) && revision === identityRevision ? null : 'cancelled');
@@ -234,11 +249,18 @@ export function createAuthService(port: AuthPort, dependencies: {
     void task.finally(() => { if (logout === task) logout = null; });
     return task;
   }
-  function onEvent(event: string) {
+  function onEvent(event: string, hint?: AuthEventIdentity) {
     if (disposed || blocked) return;
     if (event === 'INITIAL_SESSION') return; // restore() establishes the first verified state.
     if (event === 'SIGNED_OUT') { generation++; identityRevision++; pendingEmail = null; refreshWanted = false; initialized = true; if (clear() && !logout) set('signed-out'); return; }
     if (!['SIGNED_IN', 'TOKEN_REFRESHED', 'USER_UPDATED', 'PASSWORD_RECOVERY', 'MFA_CHALLENGE_VERIFIED'].includes(event) || lockedOut) return;
+    // SIGNED_IN also occurs on tab refocus. Retain only the same already verified owner;
+    // the hint grants no access and a deferred server check must still confirm that owner.
+    if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && phase === 'signed-in' && user &&
+      hint?.id === user.id && hint.anonymous === (user.kind === 'guest')) {
+      retainForRefresh = user; refreshWanted = true; scheduleRefresh(); return;
+    }
+    // Unknown/different identities and other auth transitions retire private state immediately.
     // The SDK callback stays synchronous. getSession/getUser run in a later task.
     identityRevision++; if (!clear()) return;
     if (!active && !logout) { generation++; set('checking-session'); }
