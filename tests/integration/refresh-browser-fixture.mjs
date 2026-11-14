@@ -11,6 +11,7 @@ const held=new Promise(r=>{release=r});
 const raw=new Uint8Array(await(await fetch('/source.zip')).arrayBuffer()),members=api.unzipSync(raw);
 const manifest=JSON.parse(new TextDecoder().decode(members['manifest.json'])),labels=JSON.parse(new TextDecoder().decode(members['labels.openlabel.json']));
 const old=manifest.frames[0],firstId=old.id;
+const originalObject=Object.keys(labels.openlabel.frames[firstId].objects)[0];labels.openlabel.objects['object-copy']=clone(labels.openlabel.objects[originalObject]);labels.openlabel.frames[firstId].objects['object-copy']=clone(labels.openlabel.frames[firstId].objects[originalObject]);
 manifest.frames.push({...old,id:'1',timestamp:.1,pcd:'frames/001.pcd'});members['frames/001.pcd']=members[old.pcd];
 labels.openlabel.frames['1']=clone(labels.openlabel.frames[firstId]);labels.openlabel.frames['1'].frame_properties.timestamp=.1;
 members['labels.openlabel.json']=json(labels);manifest.hashes['labels.openlabel.json']=[...new Uint8Array(await crypto.subtle.digest('SHA-256',members['labels.openlabel.json']))].map(x=>x.toString(16).padStart(2,'0')).join('');members['manifest.json']=json(manifest);
