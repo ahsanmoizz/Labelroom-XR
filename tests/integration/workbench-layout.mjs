@@ -52,7 +52,7 @@ export async function runLayoutCases(context, url, screenshots) {
    await p.getByRole('button',{name:'Focus scene',exact:true}).click();assert.equal(await x.isVisible(),false);assert.equal(await p.getByRole('button',{name:'Sign out',exact:true}).isVisible(),false);
    await p.getByRole('button',{name:'Restore panels',exact:true}).click();assert.equal(await x.inputValue(),'0.375');assert.equal(await p.getByRole('button',{name:'Sign out',exact:true}).isVisible(),true);
    await p.getByRole('button',{name:'Hide account',exact:true}).click();
-   await p.getByRole('button',{name:'User guide',exact:true}).click();const guide=p.getByRole('dialog',{name:'How to use LabelRoom XR',exact:true});await guide.waitFor();assert.equal(await guide.locator('ol > li').count(),6);assert(await guide.getByText('Continue after refresh',{exact:true}).isVisible());
+   await p.getByRole('button',{name:'User guide',exact:true}).click();const guide=p.getByRole('dialog',{name:'How to use LabelRoom XR',exact:true});await guide.waitFor();assert.equal(await guide.locator('ol > li').count(),7);assert(await guide.getByText('Continue after refresh',{exact:true}).isVisible());assert(await guide.getByText('Isolate and inspect depth',{exact:true}).isVisible());assert.match(await guide.innerText(),/0\.5|0·5/);
    await p.keyboard.press('Escape');assert.equal(await guide.isVisible(),false);
    assert.deepEqual(await p.evaluate(()=>window.labelxrBrowser.state()),before,'Navigation changed the saved/review state');
    await p.getByRole('button',{name:'Preview edit',exact:true}).click();await p.waitForFunction(()=>window.labelxrBrowser.state().phase==='proposed');

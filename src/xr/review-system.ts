@@ -69,7 +69,7 @@ export function createReviewView(world: Pick<World,'createTransformEntity'> & Pa
   }
   try { place();showFrame(source.frames[0].id);entity=world.createTransformEntity(group,{persistent:false}); }
   catch(error) {try{dispose()}catch{/* All owned cleanup boundaries were attempted. */}throw error;}
-  return {showFrame,setScale:place,resetView:()=>{isolated=false;rotationDegrees=0;depthView='scene';redraw();place(.02)},dispose,inspection,
+  return {showFrame,setScale:place,recenterView:()=>place(),resetView:()=>{isolated=false;rotationDegrees=0;depthView='scene';redraw();place(.02)},dispose,inspection,
     setIsolation(enabled:boolean){requireOpen();if(enabled&&!selected)throw Error('Select an object before isolating.');isolated=enabled;redraw();place();},
     rotateView(deltaDegrees:number){requireOpen();if(!Number.isFinite(deltaDegrees)||Math.abs(deltaDegrees)>360)throw Error('Invalid display rotation.');rotationDegrees=((rotationDegrees+deltaDegrees)%360+360)%360;version++;place();},
     setDepthView(value:DepthView){requireOpen();if(!depthViews.includes(value))throw Error('Unknown depth view.');depthView=value;projection=undefined;version++;},

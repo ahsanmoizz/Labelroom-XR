@@ -6,7 +6,7 @@ import {paintDepthProjection} from '../ui/depth-canvas';
 import {createHandIntentGate,type Hand,type HandSample} from './hand-gate';
 import {spatialFields,type SpatialAction,type SpatialChoice,type SpatialField,type SpatialReviewPort} from '../ui/spatial-review-port';
 type SpatialWorld=Pick<World,'createTransformEntity'> & Partial<Pick<World,'onXRFrame'|'xrSession'|'xrReferenceSpace'|'player'>>;
-interface Presentation {pick(ray:Ray):{frameId:string;objectId:string;distance:number}|undefined;highlight(frameId:string,objectId:string):void;recenter():void;inspection?():InspectionState|undefined;setIsolation?(enabled:boolean):unknown;rotateView?(delta:number):unknown;setDepthView?(view:DepthView):unknown}
+interface Presentation {pick(ray:Ray):{frameId:string;objectId:string;distance:number}|undefined;highlight(frameId:string,objectId:string):void;recenter():void;resetInspection?():unknown;inspection?():InspectionState|undefined;setIsolation?(enabled:boolean):unknown;rotateView?(delta:number):unknown;setDepthView?(view:DepthView):unknown}
 interface Button {key:string;label:string;x:number;y:number;w:number;h:number;enabled:boolean}
 const W=1024,H=1280;
 /** World-anchored panel. Native selectstart/end are pinches; every edit goes through the existing controller. */
@@ -51,7 +51,7 @@ export function mountSpatialReview(world:SpatialWorld,port:SpatialReviewPort,vie
       button('view:isolate',inspection?.isolated?'Object isolated':'Isolate selected',36,480,464,ready&&!!inspection?.canIsolate&&!inspection?.isolated);
       button('view:all','Show all objects',520,480,464,ready&&!!inspection?.isolated);
       button('view:left','Rotate left 15°',36,580,464,ready);button('view:right','Rotate right 15°',520,580,464,ready);
-      button('depth:scene','3D scene',36,680,948,ready);
+      button('view:reset','Reset view',36,680,464,ready);button('depth:scene','3D scene',520,680,464,ready);
       for(const [i,mode] of (['top','front','side'] as const).entries())button('depth:'+mode,({top:'Top · X/Y',front:'Front · X/Z',side:'Side · Y/Z'})[mode],36+i*320,780,300,ready);
       if(inspection?.projection){if(depthContext&&paintedProjection!==inspection.projection){paintDepthProjection(depthContext,inspection.projection,0,0,948,240);paintedProjection=inspection.projection;}if(depthContext)ctx!.drawImage(depthCanvas,36,870);else paintDepthProjection(ctx!,inspection.projection,36,870,948,240);}
       else{ctx!.fillStyle='#b9cbd7';ctx!.font='25px system-ui';wrap('Select a box, then isolate its 0.5 m neighbourhood. Choose a source-axis depth projection. Display rotation never changes source coordinates or saved labels.',900,5);}
@@ -95,7 +95,7 @@ export function mountSpatialReview(world:SpatialWorld,port:SpatialReviewPort,vie
     if(key==='recenter'){recenter=true;return}
     if(key.startsWith('page:')){page=key.slice(5)as typeof page;return}
     const [kind,name,delta]=key.split(':');
-    if(kind==='view'){if(name==='isolate')view.setIsolation?.(true);if(name==='all')view.setIsolation?.(false);if(name==='left')view.rotateView?.(-15);if(name==='right')view.rotateView?.(15);}
+    if(kind==='view'){if(name==='isolate')view.setIsolation?.(true);if(name==='all')view.setIsolation?.(false);if(name==='left')view.rotateView?.(-15);if(name==='right')view.rotateView?.(15);if(name==='reset')view.resetInspection?.();}
     if(kind==='depth')view.setDepthView?.(name as DepthView);
     if(kind==='cycle')port.cycle(name as SpatialChoice,Number(delta)as -1|1);
     if(kind==='nudge')port.nudge(name as SpatialField,Number(delta)as -1|1);

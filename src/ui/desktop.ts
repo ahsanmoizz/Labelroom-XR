@@ -12,6 +12,7 @@ export interface DatasetView extends Partial<InspectionPort> {
   showFrame(id: string): unknown;
   setScale(scale: number): void;
   resetView(): void;
+  recenterView?():void;
   dispose(): void;
 }
 export interface DatasetPanelOptions {
@@ -137,7 +138,8 @@ export function mountDatasetPanel(root: HTMLElement, options: DatasetPanelOption
     setIsolation:(enabled:boolean)=>{if(closed||blocked||busy||reviewLocked||!view?.setIsolation)return false;view.setIsolation(enabled);inspection.render();viewChanged();return true;},
     rotateView:(delta:number)=>{if(closed||blocked||busy||reviewLocked||!view?.rotateView)return false;view.rotateView(delta);inspection.render();viewChanged();return true;},
     setDepthView:(mode:DepthView)=>{if(closed||blocked||busy||reviewLocked||!view?.setDepthView)return false;view.setDepthView(mode);inspection.render();viewChanged();return true;},
-    recenter:()=>{if(!closed&&!blocked&&!busy&&view){view.resetView();scale.value='0.02';describe();inspection.render();viewChanged()}},
+    recenter:()=>{if(!closed&&!blocked&&!busy&&view){if(view.recenterView)view.recenterView();else{view.resetView();scale.value='0.02';}describe();inspection.render();viewChanged()}},
+    resetInspection:()=>{if(closed||blocked||busy||reviewLocked||!view)return false;view.resetView();scale.value='0.02';describe();inspection.render();viewChanged();return true;},
     focusFrame(id: string,objectId?:string) { if (closed || blocked || busy || !source || !view) return; const target = frames.findIndex(f => f.id === id); if (target < 0) throw new Error('Unknown review frame.'); if(view.frameId!==id)view.showFrame(id);if(objectId)view.select?.(id,objectId); index = target; describe(); controls(); },
     replaceSaved(display: FrameViewSource, expectedSourceHash: string) {
       if (closed || blocked || busy || !source || !view || source.bundleSha256 !== expectedSourceHash || display.frames.length !== source.frames.length || display.frames.some((f, i) => f.id !== source!.frames[i].id || f.timestamp !== source!.frames[i].timestamp || f.pointCount !== source!.frames[i].pointCount)) throw new Error('Saved view source differs.');
