@@ -11,7 +11,7 @@ concurrency:
 jobs:
   review-ui:
     runs-on: ubuntu-24.04
-    timeout-minutes: 12
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -64,7 +64,7 @@ jobs:
 
   readable-windows:
     runs-on: windows-2025
-    timeout-minutes: 12
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -77,15 +77,26 @@ jobs:
       - run: New-Item -ItemType Directory -Path artifacts -Force | Out-Null
       - name: Windows module path parser and exact-specifier regression
         run: npm test -- tests/unit/browser-module-source.test.ts --reporter=json --outputFile=artifacts/windows-path.json
-      - name: Readable measured AI in native Windows Edge
+      - name: Exact native publisher entrypoints in Windows Edge
         shell: pwsh
         run: |
           $edge = Join-Path ${env:ProgramFiles(x86)} 'Microsoft\Edge\Application\msedge.exe'
           if (-not (Test-Path -LiteralPath $edge -PathType Leaf)) { throw 'Native Edge is required.' }
           $env:LABELXR_CHROMIUM_PATH = $edge
+          node scripts/test-browser-review.mjs "$env:GITHUB_WORKSPACE\artifacts\windows-browser.json"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/test-browser-auth.mjs "$env:GITHUB_WORKSPACE\artifacts\windows-auth.json"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/test-browser-session.mjs "$env:GITHUB_WORKSPACE\artifacts\windows-session.json"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/test-browser-xr.mjs "$env:GITHUB_WORKSPACE\artifacts\windows-xr.json"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/test-browser-refresh.mjs "$env:GITHUB_WORKSPACE\artifacts\windows-refresh.json"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node scripts/test-browser-ai-readable.mjs "$env:GITHUB_WORKSPACE\artifacts\windows-ai-readable.json"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node scripts/test-browser-view-tools.mjs "$env:GITHUB_WORKSPACE\artifacts\windows-view-tools.json"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         if: always()
         with:
