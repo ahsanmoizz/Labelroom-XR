@@ -1,5 +1,5 @@
 // LABELXR-AI-ENDPOINT-v1
-import{z}from'zod';import{AI_SCHEMA,requestSchema,responseSchema,toolCallSchema,assessmentSchema,type AiStep,type AiToolCall,type AiScope}from'../../../src/ai/protocol.ts';
+import{z}from'zod';import{AI_SCHEMA,requestSchema,responseSchema,toolCallSchema,assessmentSchema,roundSchema,type AiStep,type AiToolCall,type AiScope}from'../../../src/ai/protocol.ts';
 import{requireVerifiedUser,type AuthenticationClient,type VerifiedIdentity}from'./auth.ts';import{approvedOrigin,checkRequest,readJsonObject,jsonResponse,problemResponse,HttpProblem}from'./http.ts';import{agentPrompt}from'../agent/prompt.ts';
 const id=z.string().min(1).max(128).refine(s=>!!s.trim()&&!/https?:\/\/|sb_secret_|gsk_/i.test(s)),finite=z.number().finite();
 export const aiContextSchema=z.strictObject({projectId:z.string().uuid(),sourceBundleSha256:z.string().regex(/^[a-f0-9]{64}$/),revision:z.number().int().min(0).max(300),consent:z.boolean(),frames:z.array(z.strictObject({id,timestamp:finite,pointCount:z.number().int().min(0).max(200000),objects:z.array(z.strictObject({id,box:z.array(finite).length(10)})).max(100)})).min(1).max(10)});
@@ -7,6 +7,16 @@ export type AiContext=z.infer<typeof aiContextSchema>;
 const messages={disabled:[503,'AI assistance is disabled or not configured.'],consent:[403,'Enable project AI consent before requesting assistance.'],conflict:[409,'The saved project changed. Reload before requesting AI.'],budget:[429,'The AI budget is exhausted. Manual review remains available.'],replay:[409,'This provider reservation was already used or interrupted. It will not be sent again.'],input:[400,'The AI request or tool evidence is invalid.'],provider:[503,'The model request failed or timed out. No edit was applied.'],response:[502,'The model returned an unsupported or ungrounded response.'],unavailable:[503,'AI project context is unavailable.']}as const;
 export const responseReasons=['provider-envelope','finish-length','finish-content-filter','finish-reason','tool-limit','tool-json','tool-schema','tool-target','tool-duplicate','final-json','final-schema','final-evidence'] as const;
 export type ResponseReason=typeof responseReasons[number];
+const providerAssessmentSchema=z.strictObject({assessment:assessmentSchema.shape.assessment});
+/** Provenance is application-owned: use only the exact completed, validated transcript. */
+function completedEvidenceIds(step:AiStep,context:AiContext){
+ const ids:string[]=[];
+ for(const round of step.rounds){
+  let parsed:ReturnType<typeof roundSchema.safeParse>;try{parsed=roundSchema.safeParse(round)}catch{throw new AgentProblem('response','final-evidence')}if(!parsed.success)throw new AgentProblem('response','final-evidence');
+  for(const result of parsed.data.results){try{knownCall(result.call,context)}catch{throw new AgentProblem('response','final-evidence')}ids.push(result.call.id);}
+ }
+ if(ids.length<1||ids.length>8||new Set(ids).size!==ids.length)throw new AgentProblem('response','final-evidence');return ids;
+}
 export const providerReasons=['rate-limit','credentials','request-rejected','upstream-unavailable','timeout','network','invalid-response'] as const;
 const providerDiagnosticSchema=z.strictObject({reason:z.enum(providerReasons),httpStatus:z.number().int().min(400).max(599).optional(),retryAfterSeconds:z.number().int().min(0).max(3600).optional(),rateLimitTokens:z.number().int().min(1).max(1000000000).optional(),remainingTokens:z.number().int().min(0).max(1000000000).optional(),code:z.enum(['rate_limit_exceeded','tokens','requests','tool_use_failed','invalid_request_error','invalid_api_key','model_not_found']).optional()});
 export type ProviderDiagnostic=z.infer<typeof providerDiagnosticSchema>;
@@ -25,7 +35,7 @@ export function providerRequest(step:AiStep,context:AiContext){
  const finalMessages=[{role:'system',content:agentPrompt},{role:'user',content:JSON.stringify({task:step.task,scope:{projectId:step.projectId,sourceBundleSha256:step.sourceBundleSha256,revision:step.revision},selected:{frameId:step.frameId,objectId:step.objectId},completedEvidence:completed})}];
  const body={model:'openai/gpt-oss-20b',temperature:0,max_completion_tokens:700,reasoning_effort:'low',stream:false,
   parallel_tool_calls:finalOnly?undefined:false,tool_choice:finalOnly?undefined:'auto',tools:finalOnly?undefined:toolsDefinition(),
-  response_format:finalOnly?{type:'json_schema',json_schema:{name:'labelxr_assessment',strict:true,schema:{type:'object',properties:{assessment:{type:'string',enum:['review-measurements','cannot-suggest-safely','no-change-recommended','needs-user-review']},evidenceIds:{type:'array',items:{type:'string',enum:ids}}},required:['assessment','evidenceIds'],additionalProperties:false}}}:undefined,
+  response_format:finalOnly?{type:'json_schema',json_schema:{name:'labelxr_assessment',strict:true,schema:{type:'object',properties:{assessment:{type:'string',enum:['review-measurements','cannot-suggest-safely','no-change-recommended','needs-user-review']}},required:['assessment'],additionalProperties:false}}}:undefined,
   messages:finalOnly?finalMessages:messages};
  if(JSON.stringify(body).length>60000)throw new AgentProblem('input');return body;
 }
@@ -45,9 +55,13 @@ export function parseProvider(value:unknown,step:AiStep,context:AiContext){
  }
  if(choice.finish_reason!=='stop'||typeof choice.message.content!=='string')throw finishFailure();
  let content:unknown;try{content=JSON.parse(choice.message.content)}catch{throw new AgentProblem('response','final-json')}
- const answer=assessmentSchema.safeParse(content);if(!answer.success)throw new AgentProblem('response','final-schema');
- if(new Set(answer.data.evidenceIds).size!==answer.data.evidenceIds.length||answer.data.evidenceIds.some(id=>!prior.some(c=>c.id===id)))throw new AgentProblem('response','final-evidence');
- return responseSchema.parse({...scope,kind:'final',answer:answer.data});
+ const compact=providerAssessmentSchema.safeParse(content),legacy=assessmentSchema.safeParse(content);
+ if(!compact.success&&!legacy.success)throw new AgentProblem('response','final-schema');
+ const evidenceIds=completedEvidenceIds(step,context);
+ // Retain strict rejection for older provider replies that explicitly claim a bad citation.
+ if(legacy.success&&(new Set(legacy.data.evidenceIds).size!==legacy.data.evidenceIds.length||legacy.data.evidenceIds.some(id=>!evidenceIds.includes(id))))throw new AgentProblem('response','final-evidence');
+ const assessment=compact.success?compact.data.assessment:legacy.success?legacy.data.assessment:undefined;
+ return responseSchema.parse({...scope,kind:'final',answer:{assessment,evidenceIds}});
 }
 /** A verified caller can consent and inspect only their current saved project. There is no edit capability. */
 export function createAgentHandler(options:{origin:string;client:AuthenticationClient;port:AgentPort;enabled:boolean}){
