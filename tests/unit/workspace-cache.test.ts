@@ -12,3 +12,9 @@ describe('Verified-owner workspace bookmarks',()=>{
  it('storage failure is surfaced without an in-memory durability claim',()=>{const f=fixture();const c=createWorkspaceCache(f.scope,{...f.storage,setItem(){throw Error('Quota')}} as Storage,undefined as any);expect(()=>c.write(bookmark)).toThrow('Quota')});
  it('unavailable local source storage refuses a false recovery acknowledgement',async()=>{const f=fixture();await expect(f.cache.saveLocal(new Uint8Array([1]))).rejects.toThrow();await expect(f.cache.loadLocal()).rejects.toThrow();let closes=0,aborts=0;const db={close(){closes++},transaction(){return{abort(){aborts++},objectStore(){return{put(){throw Error('Synthetic quota exceeded')}}}}}};const factory={open(){const request:any={result:db};queueMicrotask(()=>request.onsuccess());return request}};const quota=createWorkspaceCache(f.scope,f.storage,factory as any);await expect(quota.saveLocal(new Uint8Array([1]))).rejects.toThrow();expect(closes).toBe(1);expect(aborts).toBe(1)});
 });
+
+describe('read-only inspection bookmark preferences',()=>{
+ it('round-trips isolation, heading and source-axis projection under the existing owner scope',()=>{const f=fixture(),value={...bookmark,inspection:{isolated:true,rotationDegrees:345,depthView:'top' as const}};f.cache.write(value);expect(createWorkspaceCache(f.scope,f.storage,undefined as any).read()).toEqual(value)});
+ it.each([{isolated:true,rotationDegrees:360,depthView:'top'},{isolated:true,rotationDegrees:0,depthView:'bad'},{isolated:false,rotationDegrees:0,depthView:'scene',approve:true}])('rejects invalid or privileged display preferences %#',inspection=>{const f=fixture();expect(()=>f.cache.write({...bookmark,inspection} as any)).toThrow()});
+ it('does not restore an isolated view without an object identity',()=>{const f=fixture();expect(()=>f.cache.write({...bookmark,objectId:undefined,inspection:{isolated:true,rotationDegrees:0,depthView:'top'}})).toThrow()});
+});

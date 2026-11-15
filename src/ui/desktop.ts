@@ -2,8 +2,11 @@
 import { loadBundleBytes, type BundleSource, type BundleFrame } from '../data/bundle';
 import type { FrameViewSource } from '../xr/frame-view';
 import type {Ray} from 'three';
+import type {InspectionPort,InspectionState,InspectionPreferences,DepthView} from '../xr/inspection';
+import {mountInspectionControls} from './inspection-controls';
 
-export interface DatasetView {
+export interface DatasetView extends Partial<InspectionPort> {
+  readonly frameId?:string;
   pick?(ray:Ray):{frameId:string;objectId:string;distance:number}|undefined;
   select?(frameId:string,objectId:string):void;
   showFrame(id: string): unknown;
@@ -45,6 +48,7 @@ export function mountDatasetPanel(root: HTMLElement, options: DatasetPanelOption
   const viewChanged = () => { for (const listener of [...viewSubscribers]) listener(); };
   function notify() { for (const listener of [...subscribers]) { try { listener(); } catch { blocked = true; } } }
   const listeners: (() => void)[] = [];
+  const inspection=mountInspectionControls(panel,()=>!closed&&!blocked&&!busy&&view?.inspection&&view.setIsolation&&view.rotateView&&view.setDepthView?view as DatasetView&InspectionPort:undefined,()=>!reviewLocked,viewChanged);
   function listen(element: HTMLElement, event: string, handler: () => void) {
     element.addEventListener(event, handler); listeners.push(() => element.removeEventListener(event, handler));
   }
@@ -53,7 +57,7 @@ export function mountDatasetPanel(root: HTMLElement, options: DatasetPanelOption
     const disabled = closed || blocked || busy || reviewLocked || !source || !view;
     previous.disabled = disabled || index === 0;
     next.disabled = disabled || !source || index >= frames.length - 1;
-    scale.disabled = disabled; reset.disabled = disabled;
+    scale.disabled = disabled; reset.disabled = disabled;inspection.render();
   }
   function describe() {
     if (!source) return;
@@ -111,15 +115,15 @@ export function mountDatasetPanel(root: HTMLElement, options: DatasetPanelOption
     try { const n = Number(scale.value); if (!Number.isFinite(n) || n < 0.02 || n > 0.20) throw new Error('Scale'); view.setScale(n); viewChanged(); }
     catch { status.textContent = 'Display scale is unavailable.'; }
   });
-  listen(reset, 'click', () => { if (closed || blocked || busy || !view) return; try { view.resetView(); scale.value = '0.02'; describe(); viewChanged(); } catch { status.textContent = 'View could not be reset.'; } });
+  listen(reset, 'click', () => { if (closed || blocked || busy || !view) return; try { view.resetView(); scale.value = '0.02'; describe();inspection.render();viewChanged(); } catch { status.textContent = 'View could not be reset.'; } });
   controls();
   return { element: panel, current: () => closed || blocked || busy ? undefined : source, available: () => !closed && !blocked && !busy && !reviewLocked,
-    viewState: () => source && frames[index] ? { frameId: frames[index].id, scale: Number(scale.value) } : undefined,
-    restoreView(frameId: string, displayScale: number) {
+    viewState: () => {if(!source||!frames[index])return;const state=view?.inspection?.();return{frameId:frames[index].id,scale:Number(scale.value),...(state?{objectId:state.objectId||undefined,inspection:{isolated:state.isolated,rotationDegrees:state.rotationDegrees,depthView:state.depthView}}:{})};},
+    restoreView(frameId: string, displayScale: number,preferences?:InspectionPreferences,objectId?:string) {
       if (closed || blocked || busy || !source || !view || !Number.isFinite(displayScale) || displayScale < .02 || displayScale > .20) return;
       const target = frames.findIndex(frame => frame.id === frameId);
       if (target >= 0) { view.showFrame(frameId); index = target; }
-      view.setScale(displayScale); scale.value = String(displayScale); describe(); controls();
+      view.setScale(displayScale); scale.value = String(displayScale);if(objectId)view.select?.(frameId,objectId);if(preferences&&view.inspection&&view.setDepthView&&view.rotateView&&view.setIsolation){view.rotateView(preferences.rotationDegrees-view.inspection().rotationDegrees);view.setDepthView(preferences.depthView);view.setIsolation(preferences.isolated&&view.inspection().canIsolate);}describe(); controls();
       viewChanged();
     },
     subscribe(listener: () => void) { subscribers.add(listener); return () => { subscribers.delete(listener); }; },
@@ -128,20 +132,24 @@ export function mountDatasetPanel(root: HTMLElement, options: DatasetPanelOption
     subscribeView(listener: () => void) { viewSubscribers.add(listener); return () => { viewSubscribers.delete(listener); }; },
     setReviewLocked(value: boolean) { if (closed || reviewLocked === value) return; reviewLocked = value; controls(); for (const fn of [...availability]) fn(); },
     pick:(ray:Ray)=>!closed&&!blocked&&!busy?view?.pick?.(ray):undefined,
-    highlight:(frameId:string,objectId:string)=>{if(!closed&&!blocked&&!busy)view?.select?.(frameId,objectId)},
-    recenter:()=>{if(!closed&&!blocked&&!busy&&view){view.resetView();scale.value='0.02';describe();viewChanged()}},
-    focusFrame(id: string,objectId?:string) { if (closed || blocked || busy || !source || !view) return; const target = frames.findIndex(f => f.id === id); if (target < 0) throw new Error('Unknown review frame.'); view.showFrame(id);if(objectId)view.select?.(id,objectId); index = target; describe(); controls(); },
+    highlight:(frameId:string,objectId:string)=>{if(!closed&&!blocked&&!busy){view?.select?.(frameId,objectId);inspection.render();}},
+    inspection:():InspectionState|undefined=>!closed&&!blocked&&!busy?view?.inspection?.():undefined,
+    setIsolation:(enabled:boolean)=>{if(closed||blocked||busy||reviewLocked||!view?.setIsolation)return false;view.setIsolation(enabled);inspection.render();viewChanged();return true;},
+    rotateView:(delta:number)=>{if(closed||blocked||busy||reviewLocked||!view?.rotateView)return false;view.rotateView(delta);inspection.render();viewChanged();return true;},
+    setDepthView:(mode:DepthView)=>{if(closed||blocked||busy||reviewLocked||!view?.setDepthView)return false;view.setDepthView(mode);inspection.render();viewChanged();return true;},
+    recenter:()=>{if(!closed&&!blocked&&!busy&&view){view.resetView();scale.value='0.02';describe();inspection.render();viewChanged()}},
+    focusFrame(id: string,objectId?:string) { if (closed || blocked || busy || !source || !view) return; const target = frames.findIndex(f => f.id === id); if (target < 0) throw new Error('Unknown review frame.'); if(view.frameId!==id)view.showFrame(id);if(objectId)view.select?.(id,objectId); index = target; describe(); controls(); },
     replaceSaved(display: FrameViewSource, expectedSourceHash: string) {
       if (closed || blocked || busy || !source || !view || source.bundleSha256 !== expectedSourceHash || display.frames.length !== source.frames.length || display.frames.some((f, i) => f.id !== source!.frames[i].id || f.timestamp !== source!.frames[i].timestamp || f.pointCount !== source!.frames[i].pointCount)) throw new Error('Saved view source differs.');
-      const frame = frames[index].id, displayScale = Number(scale.value); present(source, display, ticket, false);
-      const target = frames.findIndex(f => f.id === frame); if (target >= 0) { view!.showFrame(frame); index = target; } view!.setScale(displayScale); scale.value = String(displayScale); describe(); controls();
+      const frame = frames[index].id, displayScale = Number(scale.value),state=view.inspection?.(); present(source, display, ticket, false);
+      const target = frames.findIndex(f => f.id === frame); if (target >= 0) { view!.showFrame(frame); index = target; } view!.setScale(displayScale); scale.value = String(displayScale);if(state&&view!.inspection){if(state.objectId)view!.select?.(frame,state.objectId);view!.rotateView?.(state.rotationDegrees);if(state.isolated&&view!.inspection().canIsolate)view!.setIsolation?.(true);view!.setDepthView?.(state.depthView);}describe(); controls();
     },
     show(parsed: BundleSource, display?: FrameViewSource) { ticket++; busy = false; present(parsed, display); },
     clear() { if (closed) return; ticket++; busy = false; const owned = view; view = undefined; source = undefined; frames = []; file.value = ''; rights.textContent = ''; status.textContent = 'No dataset loaded.'; try { owned?.dispose(); } catch { failCleanup(); throw new Error('Dataset cleanup failed.'); } notify(); controls(); },
     dispose() {
     if (closed) return; closed = true; ticket++; busy = false;
     const owned = view; view = undefined; source = undefined; file.value = ''; rights.textContent = ''; status.textContent = '';
-    listeners.forEach(close => close()); subscribers.clear(); availability.clear(); frameSubscribers.clear(); viewSubscribers.clear(); panel.remove();
+    inspection.dispose();listeners.forEach(close => close()); subscribers.clear(); availability.clear(); frameSubscribers.clear(); viewSubscribers.clear(); panel.remove();
     owned?.dispose();
   } };
 }

@@ -1,7 +1,7 @@
 name: UI readability and review regression
 on:
   push:
-    branches: [main, deadline/complete-guest-demo, deadline/ui-readability, deadline/final-acceptance, deadline/auth-entry, deadline/current-guest-check, deadline/session-xr, deadline/workspace-refocus, deadline/graphite-workspace, deadline/frame-navigation, deadline/refresh-ai, deadline/xr-entry, deadline/ai-evidence, deadline/ai-readable]
+    branches: [main, deadline/complete-guest-demo, deadline/ui-readability, deadline/final-acceptance, deadline/auth-entry, deadline/current-guest-check, deadline/session-xr, deadline/workspace-refocus, deadline/graphite-workspace, deadline/frame-navigation, deadline/refresh-ai, deadline/xr-entry, deadline/ai-evidence, deadline/ai-readable, deadline/view-tools]
   workflow_dispatch:
 permissions:
   contents: read
@@ -31,6 +31,8 @@ jobs:
         run: node scripts/test-browser-refresh.mjs "$GITHUB_WORKSPACE/artifacts/refresh.json"
       - name: Readable measured AI evidence, disclosure and failure-state regression
         run: node scripts/test-browser-ai-readable.mjs "$GITHUB_WORKSPACE/artifacts/ai-readable.json"
+      - name: Read-only isolation, source-axis projections and tabletop controls
+        run: node scripts/test-browser-view-tools.mjs "$GITHUB_WORKSPACE/artifacts/view-tools.json"
       - name: Native browser review and responsive layout checks
         run: node scripts/test-browser-review.mjs "$GITHUB_WORKSPACE/artifacts/browser.json"
         env:
@@ -82,6 +84,8 @@ jobs:
           if (-not (Test-Path -LiteralPath $edge -PathType Leaf)) { throw 'Native Edge is required.' }
           $env:LABELXR_CHROMIUM_PATH = $edge
           node scripts/test-browser-ai-readable.mjs "$env:GITHUB_WORKSPACE\artifacts\windows-ai-readable.json"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/test-browser-view-tools.mjs "$env:GITHUB_WORKSPACE\artifacts\windows-view-tools.json"
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         if: always()
         with:

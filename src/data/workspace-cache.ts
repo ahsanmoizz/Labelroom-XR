@@ -7,7 +7,8 @@ const bookmarkSchema = z.strictObject({
   sourceHash: reviewHash, reviewOpen: z.boolean(),
   frameId: z.string().min(1).max(256), objectId: z.string().max(256).optional(),
   scale: z.number().min(0.02).max(0.20),
-}).refine(v => v.kind === 'saved' ? !!v.projectId : !v.projectId && !v.reviewOpen);
+  inspection:z.strictObject({isolated:z.boolean(),rotationDegrees:z.number().min(0).lt(360),depthView:z.enum(['scene','top','front','side'])}).optional(),
+}).refine(v => (v.kind === 'saved' ? !!v.projectId : !v.projectId && !v.reviewOpen)&&(!v.inspection?.isolated||!!v.objectId));
 export type WorkspaceBookmark = z.infer<typeof bookmarkSchema>;
 export interface WorkspaceCache {
   read(): WorkspaceBookmark | undefined;

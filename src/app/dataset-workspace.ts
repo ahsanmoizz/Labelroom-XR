@@ -129,7 +129,7 @@ export function createDatasetWorkspace(load: () => Promise<WorldFactory>, adapte
             if (!active() || pendingSelection !== selected) return;
             pendingSelection = undefined;
             review?.selectObject?.(selected.frameId, selected.objectId);
-            preview.restoreView(selected.frameId, selected.scale);
+            preview.restoreView(selected.frameId, selected.scale,selected.inspection,selected.objectId);
             if (bookmark) bookmark = { ...bookmark, frameId: selected.frameId, objectId: selected.objectId, scale: selected.scale };
             remember();
           });
@@ -160,9 +160,9 @@ export function createDatasetWorkspace(load: () => Promise<WorldFactory>, adapte
       closeDataset.addEventListener('click', () => { if (closed || restoring || closeDataset.disabled) return; closeReview(); pendingSelection=undefined;bookmark=undefined;try{cache?.clear()}catch{};preview.clear();resumeStatus.textContent='Dataset closed. Saved server revisions and typed recovery drafts are retained.';retryResume.hidden=true; });
       function showSaved(result: OpenedProject, restore?: WorkspaceBookmark) {
         rememberedSource=result.original;
-        bookmark = {schema:'labelxr-open-workspace/v1',kind:'saved',sourceHash:result.original.bundleSha256,projectId:result.project.id,reviewOpen:restore?.reviewOpen??true,frameId:restore?.frameId??result.original.frames[0].id,objectId:restore?.objectId,scale:restore?.scale??.02};
+        bookmark = {schema:'labelxr-open-workspace/v1',kind:'saved',sourceHash:result.original.bundleSha256,projectId:result.project.id,reviewOpen:restore?.reviewOpen??true,frameId:restore?.frameId??result.original.frames[0].id,objectId:restore?.objectId,scale:restore?.scale??.02,inspection:restore?.inspection};
         presenting=true;
-        try { closeReview(); preview.show(result.original,projectPreview(result)); if(bookmark.reviewOpen)startReview(result,restore); else preview.restoreView(bookmark.frameId,bookmark.scale); }
+        try { closeReview(); preview.show(result.original,projectPreview(result)); if(bookmark.reviewOpen)startReview(result,restore); else preview.restoreView(bookmark.frameId,bookmark.scale,bookmark.inspection,bookmark.objectId); }
         finally { presenting=false; }
         if (restore && context?.user.kind==='member') projects?.reopened(result.project);
         closeDataset.disabled=false; remember();
@@ -242,7 +242,7 @@ export function createDatasetWorkspace(load: () => Promise<WorldFactory>, adapte
             if(closed||signal.aborted)return;
             if(source.bundleSha256!==stored.sourceHash)throw Error('Local source changed.');
             localHash=source.bundleSha256;presenting=true;
-            try{bookmark=stored;rememberedSource=source;preview.show(source);preview.restoreView(stored.frameId,stored.scale);}finally{presenting=false;}
+            try{bookmark=stored;rememberedSource=source;preview.show(source);preview.restoreView(stored.frameId,stored.scale,stored.inspection,stored.objectId);}finally{presenting=false;}
           }
           resumeStatus.textContent='Previous workspace reopened. Saved revisions and local typed recovery are preserved.';
         } catch {

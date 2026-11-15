@@ -343,3 +343,8 @@ noscript { display: block; padding: 24px; }
 .ai-panel .ai-technical-evidence summary { cursor: pointer; color: var(--accent, #83ded0); padding-block: 8px; }
 .ai-panel .ai-technical-evidence summary:focus-visible { outline: 2px solid var(--accent, #83ded0); outline-offset: 3px; }
 .ai-panel .ai-technical-evidence pre { max-width: 100%; margin: 10px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.6; }
+
+.inspection-controls { margin-block: 16px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--field); }
+.inspection-controls summary { padding-block: 8px; cursor: pointer; color: var(--accent); }
+.inspection-controls canvas { display: block; width: 100%; height: auto; max-width: 640px; border: 1px solid var(--line); border-radius: 8px; }
+.inspection-controls [role="status"] { margin-block: 12px; font-size: 13px; }
