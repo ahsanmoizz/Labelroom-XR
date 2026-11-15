@@ -59,3 +59,33 @@ jobs:
           path: artifacts/
           if-no-files-found: warn
           retention-days: 3
+
+  readable-windows:
+    runs-on: windows-2025
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: 24.19.0
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: New-Item -ItemType Directory -Path artifacts -Force | Out-Null
+      - name: Windows module path parser and exact-specifier regression
+        run: npm test -- tests/unit/browser-module-source.test.ts --reporter=json --outputFile=artifacts/windows-path.json
+      - name: Readable measured AI in native Windows Edge
+        shell: pwsh
+        run: |
+          $edge = Join-Path ${env:ProgramFiles(x86)} 'Microsoft\Edge\Application\msedge.exe'
+          if (-not (Test-Path -LiteralPath $edge -PathType Leaf)) { throw 'Native Edge is required.' }
+          $env:LABELXR_CHROMIUM_PATH = $edge
+          node scripts/test-browser-ai-readable.mjs "$env:GITHUB_WORKSPACE\artifacts\windows-ai-readable.json"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        if: always()
+        with:
+          name: ai-readable-windows-${{ github.sha }}
+          path: artifacts/
+          if-no-files-found: warn
+          retention-days: 3
