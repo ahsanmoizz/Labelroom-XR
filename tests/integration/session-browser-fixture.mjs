@@ -2,9 +2,11 @@ import {World, XRDevice, metaQuest3, createApplicationHost, createDatasetWorkspa
 import options from './session-options.mjs';
 const device = new XRDevice(metaQuest3); device.primaryInputMode = 'hand'; device.installRuntime({forceInstall:true});
 const counts = {offers:0, requests:0, worlds:0, disposed:0, frames:0, widgets:0};
+let available=false,denyNext=false;
+const support=navigator.xr.isSessionSupported.bind(navigator.xr);navigator.xr.isSessionSupported=mode=>mode==='immersive-vr'&&!available?Promise.resolve(false):support(mode);
 const offer = navigator.xr.offerSession.bind(navigator.xr), request = navigator.xr.requestSession.bind(navigator.xr);
 navigator.xr.offerSession = (...args) => {counts.offers++; return offer(...args)};
-navigator.xr.requestSession = (...args) => {counts.requests++; return request(...args)};
+navigator.xr.requestSession = (...args) => {counts.requests++;if(denyNext){denyNext=false;return Promise.reject(new DOMException('Synthetic permission denial','NotAllowedError'))}return request(...args)};
 let release, first = true, fail = false, listener, currentWorld;
 const held = new Promise(resolve => {release=resolve});
 const identity = () => JSON.parse(localStorage.getItem('synthetic-session-identity') || 'null');
@@ -24,5 +26,5 @@ const host=createApplicationHost({statusRoot:document.getElementById('setup-stat
  challenge(container,key){return createChallenge(container,key,async()=>({render(el,o){counts.widgets++;challenges.push(o);return'fixture-'+counts.widgets},remove(){}}))},openWorkspace:open,reload(){location.reload()}});
 const env={VITE_SUPABASE_URL:'https://example.supabase.co',VITE_SUPABASE_PUBLISHABLE_KEY:'sb_publishable_synthetic_session_only',VITE_TURNSTILE_SITE_KEY:'synthetic_session_site_key',VITE_APP_ORIGIN:location.origin};
 void host.start(env,'development',location.origin);
-window.labelxrSession={async exitFromRuntime(){await currentWorld?.xrSession?.end()},releaseInitial(failure=false){fail=failure;release()},solve(){challenges.at(-1).callback('synthetic-session-security-token')},state(){return{...counts,identity:identity()?.id??null,accountState:document.getElementById('account-container').getAttribute('data-account-state'),sessionActive:!!currentWorld?.xrSession,pending:currentWorld?.sessionRequestPending??false,drawCalls:currentWorld?.renderer.info.render.calls??0,cameraAspect:currentWorld?.camera.aspect??null,viewport:(()=>{const r=document.querySelector('.workbench-viewport')?.getBoundingClientRect();return r?{width:r.width,height:r.height}:null})(),inputSources:currentWorld?.xrSession?[...currentWorld.xrSession.inputSources].map(s=>({hand:s.handedness,joints:s.hand?.size??0})):[]}},dispose(){host.dispose();device.uninstallRuntime()}};
+window.labelxrSession={setAvailable(value){available=value;navigator.xr.dispatchEvent(new Event('devicechange'))},denyNextRequest(){denyNext=true},async exitFromRuntime(){await currentWorld?.xrSession?.end()},releaseInitial(failure=false){fail=failure;release()},solve(){challenges.at(-1).callback('synthetic-session-security-token')},state(){return{...counts,identity:identity()?.id??null,accountState:document.getElementById('account-container').getAttribute('data-account-state'),sessionActive:!!currentWorld?.xrSession,pending:currentWorld?.sessionRequestPending??false,drawCalls:currentWorld?.renderer.info.render.calls??0,cameraAspect:currentWorld?.camera.aspect??null,viewport:(()=>{const r=document.querySelector('.workbench-viewport')?.getBoundingClientRect();return r?{width:r.width,height:r.height}:null})(),inputSources:currentWorld?.xrSession?[...currentWorld.xrSession.inputSources].map(s=>({hand:s.handedness,joints:s.hand?.size??0})):[]}},dispose(){host.dispose();device.uninstallRuntime()}};
 window.addEventListener('pagehide',()=>host.dispose(),{once:true});

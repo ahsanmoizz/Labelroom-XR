@@ -250,6 +250,11 @@ noscript { display: block; padding: 24px; }
 .workspace-xr-entry { display: flex; min-width: 0; pointer-events: auto; }
 .workspace-xr-entry button { min-height: 48px; width: 100%; }
 .workspace-xr-entry p { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; padding: 0; margin: 0; }
+.xr-support-dialog { width: min(420px, calc(100vw - 48px)); max-height: calc(100dvh - 48px); box-sizing: border-box; overflow: auto; padding: 24px; border: 1px solid #578f86; border-radius: 12px; color: #e6f3f5; background: #101d27; }
+.xr-support-dialog::backdrop { background: #0009; }
+.xr-support-dialog h2 { margin: 0 0 16px; font-size: 22px; }
+.workspace-xr-entry .xr-support-dialog p { position: static; width: auto; height: auto; overflow: visible; clip-path: none; white-space: normal; margin: 0 0 20px; line-height: 1.6; }
+.workspace-xr-entry .xr-support-dialog button { display: block; width: 100%; margin-top: 12px; white-space: normal; }
 .account-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
 .account-brand > img { display: block; flex: 0 0 42px; width: 42px; height: 42px; }
 .account-brand > div { min-width: 0; }
