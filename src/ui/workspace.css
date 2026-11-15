@@ -331,3 +331,15 @@ noscript { display: block; padding: 24px; }
   #account-container[data-account-state="entry"] { padding: 16px 10px; }
   #account-container[data-account-state="entry"] .account-card { padding: 22px 20px; }
 }
+
+/* Measured AI findings: readable by default, exact provenance on demand. */
+.ai-panel .ai-evidence-card { min-width: 0; margin-block: 14px; padding: 16px; border: 1px solid var(--border, #456172); border-radius: 10px; background: var(--surface, #0c1b27); }
+.ai-panel .ai-evidence-card h4 { margin: 0 0 10px; font-size: 16px; }
+.ai-panel .ai-evidence-card p { margin: 8px 0; overflow-wrap: anywhere; }
+.ai-panel .ai-measurements { margin: 10px 0; padding-left: 20px; }
+.ai-panel .ai-measurements li { margin-block: 8px; overflow-wrap: anywhere; }
+.ai-panel .ai-evidence-note { color: var(--muted); font-size: 13px; }
+.ai-panel .ai-technical-evidence { margin-top: 14px; border-top: 1px solid var(--border, #456172); padding-top: 10px; }
+.ai-panel .ai-technical-evidence summary { cursor: pointer; color: var(--accent, #83ded0); padding-block: 8px; }
+.ai-panel .ai-technical-evidence summary:focus-visible { outline: 2px solid var(--accent, #83ded0); outline-offset: 3px; }
+.ai-panel .ai-technical-evidence pre { max-width: 100%; margin: 10px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.6; }

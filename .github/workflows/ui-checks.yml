@@ -1,7 +1,7 @@
 name: UI readability and review regression
 on:
   push:
-    branches: [main, deadline/complete-guest-demo, deadline/ui-readability, deadline/final-acceptance, deadline/auth-entry, deadline/current-guest-check, deadline/session-xr, deadline/workspace-refocus, deadline/graphite-workspace, deadline/frame-navigation, deadline/refresh-ai, deadline/xr-entry, deadline/ai-evidence]
+    branches: [main, deadline/complete-guest-demo, deadline/ui-readability, deadline/final-acceptance, deadline/auth-entry, deadline/current-guest-check, deadline/session-xr, deadline/workspace-refocus, deadline/graphite-workspace, deadline/frame-navigation, deadline/refresh-ai, deadline/xr-entry, deadline/ai-evidence, deadline/ai-readable]
   workflow_dispatch:
 permissions:
   contents: read
@@ -29,6 +29,8 @@ jobs:
         run: node scripts/test-browser-focus.mjs "$GITHUB_WORKSPACE/artifacts/focus.json"
       - name: Hard refresh, local ZIP recovery and AI consent regression
         run: node scripts/test-browser-refresh.mjs "$GITHUB_WORKSPACE/artifacts/refresh.json"
+      - name: Readable measured AI evidence, disclosure and failure-state regression
+        run: node scripts/test-browser-ai-readable.mjs "$GITHUB_WORKSPACE/artifacts/ai-readable.json"
       - name: Native browser review and responsive layout checks
         run: node scripts/test-browser-review.mjs "$GITHUB_WORKSPACE/artifacts/browser.json"
         env:
