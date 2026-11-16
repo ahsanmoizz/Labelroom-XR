@@ -1,7 +1,7 @@
 name: UI readability and review regression
 on:
   push:
-    branches: [main, deadline/complete-guest-demo, deadline/ui-readability, deadline/final-acceptance, deadline/auth-entry, deadline/current-guest-check, deadline/session-xr, deadline/workspace-refocus, deadline/graphite-workspace, deadline/frame-navigation, deadline/refresh-ai, deadline/xr-entry, deadline/ai-evidence, deadline/ai-readable, deadline/view-tools]
+    branches: [main, deadline/complete-guest-demo, deadline/ui-readability, deadline/final-acceptance, deadline/auth-entry, deadline/current-guest-check, deadline/session-xr, deadline/workspace-refocus, deadline/graphite-workspace, deadline/frame-navigation, deadline/refresh-ai, deadline/xr-entry, deadline/ai-evidence, deadline/ai-readable, deadline/view-tools, fix/submission-validation-20261116]
   workflow_dispatch:
 permissions:
   contents: read
@@ -25,26 +25,13 @@ jobs:
       - run: npm run typecheck
       - run: npm test -- --reporter=json --outputFile=artifacts/unit.json
       - run: npx playwright install --with-deps chromium
-      - name: Receipt download and actual Supabase SDK refocus regression
-        run: node scripts/test-browser-focus.mjs "$GITHUB_WORKSPACE/artifacts/focus.json"
-      - name: Hard refresh, local ZIP recovery and AI consent regression
-        run: node scripts/test-browser-refresh.mjs "$GITHUB_WORKSPACE/artifacts/refresh.json"
-      - name: Readable measured AI evidence, disclosure and failure-state regression
-        run: node scripts/test-browser-ai-readable.mjs "$GITHUB_WORKSPACE/artifacts/ai-readable.json"
-      - name: Read-only isolation, source-axis projections and tabletop controls
-        run: node scripts/test-browser-view-tools.mjs "$GITHUB_WORKSPACE/artifacts/view-tools.json"
-      - name: Native browser review and responsive layout checks
-        run: node scripts/test-browser-review.mjs "$GITHUB_WORKSPACE/artifacts/browser.json"
+      - name: Public browser validation command (DOM, recovery, security and emulated XR)
+        run: npm run test:e2e
         env:
+          LABELXR_E2E_OUTPUT_DIR: ${{ github.workspace }}/artifacts/e2e
+          LABELXR_E2E_REPORT_DIR: ${{ github.workspace }}/artifacts
           LABELXR_LAYOUT_SCREENSHOTS: ${{ github.workspace }}/artifacts/ui-captures
-      - name: Entry, security footprint and account flow checks
-        run: node scripts/test-browser-auth.mjs "$GITHUB_WORKSPACE/artifacts/auth.json"
-        env:
           LABELXR_AUTH_SCREENSHOTS: ${{ github.workspace }}/artifacts/auth-captures
-      - name: Restored account and actual SDK World manual XR lifecycle
-        run: node scripts/test-browser-session.mjs "$GITHUB_WORKSPACE/artifacts/session.json"
-      - name: Actual WebXR emulator and native hand event integration
-        run: node scripts/test-browser-xr.mjs "$GITHUB_WORKSPACE/artifacts/xr.json"
       - name: Build with public fixture configuration only
         run: npm run build
         env:
@@ -104,3 +91,49 @@ jobs:
           path: artifacts/
           if-no-files-found: warn
           retention-days: 3
+
+  database-validation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f
+        with:
+          node-version: 24.19.0
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Install isolated pinned PostgreSQL runtime
+        run: npm install --prefix "$RUNNER_TEMP/labelxr-sql-runtime" --ignore-scripts --no-audit --no-fund @electric-sql/pglite@0.3.14
+      - name: Core, review, AI context, guest lifecycle and scheduler fixtures
+        run: npm run test:sql -- --runtime "$RUNNER_TEMP/labelxr-sql-runtime/node_modules/@electric-sql/pglite" --output-dir "$RUNNER_TEMP/labelxr-sql-reports"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        if: always()
+        with:
+          name: database-validation-${{ github.sha }}
+          path: ${{ runner.temp }}/labelxr-sql-reports/
+          if-no-files-found: warn
+          retention-days: 7
+
+  public-readback:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f
+        with:
+          node-version: 24.19.0
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Compare production assets against a reproducible build
+        run: node scripts/verify-public-build.mjs https://labelroom-xr.pages.dev "$RUNNER_TEMP/labelxr-public-readback"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        if: always()
+        with:
+          name: public-readback-${{ github.sha }}
+          path: ${{ runner.temp }}/labelxr-public-readback/
+          if-no-files-found: warn
+          retention-days: 7

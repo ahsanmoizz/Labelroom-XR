@@ -13,12 +13,14 @@ try{
  const fixture=JSON.parse(/^const fixture=(.+);$/m.exec(fs.readFileSync('tests/sql/core.mjs','utf8'))[1]);
  await db.exec(fixture);
  const files=fs.readdirSync('supabase/migrations').filter(n=>n.endsWith('.sql')).sort();
- for(const file of files.slice(0,-1))await db.exec(fs.readFileSync('supabase/migrations/'+file,'utf8'));
+ const scheduler='20261114140647_bounded_cleanup_schedule.sql';
+ assert(files.includes(scheduler),'Expected hosted scheduler migration is missing.');
+ for(const file of files.filter(file=>file!==scheduler))await db.exec(fs.readFileSync('supabase/migrations/'+file,'utf8'));
  await db.exec(`CREATE SCHEMA vault; CREATE TABLE vault.decrypted_secrets(name text,decrypted_secret text);
  CREATE SCHEMA net; CREATE TABLE net.synthetic_requests(id bigint GENERATED ALWAYS AS IDENTITY,url text,headers jsonb,body jsonb,timeout_ms integer);
  CREATE FUNCTION net.http_post(url text,body jsonb DEFAULT '{}'::jsonb,params jsonb DEFAULT '{}'::jsonb,headers jsonb DEFAULT '{}'::jsonb,timeout_milliseconds integer DEFAULT 5000)
  RETURNS bigint LANGUAGE plpgsql AS $$ DECLARE n bigint; BEGIN INSERT INTO net.synthetic_requests(url,headers,body,timeout_ms) VALUES(url,headers,body,timeout_milliseconds) RETURNING id INTO n; RETURN n; END $$;`);
- const migration=fs.readFileSync('supabase/migrations/'+files.at(-1),'utf8');
+ const migration=fs.readFileSync('supabase/migrations/'+scheduler,'utf8');
  // PGlite lacks these hosted extensions; only their two activation statements are omitted.
  assert.equal((migration.match(/^CREATE EXTENSION /gm)||[]).length,2);
  await db.exec(migration.replace(/^CREATE EXTENSION .*;\n/gm,''));

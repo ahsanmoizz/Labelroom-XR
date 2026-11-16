@@ -10,6 +10,8 @@ The source implements validated PCD/OpenLABEL import, private projects, a licens
 
 Open `docs/engineering-tracker.html` for historical Local PC / GitHub state. The six original guides preserve the product requirements; the current release runbook orders the remaining work for the 48-hour completion window.
 
+See [current validation commands](docs/validation.md) for the working browser/SQL entrypoints and the read-only public build comparison. `npm run test:e2e` runs eight browser suites, including the actual SDK session and emulated hands; `npm run test:sql` runs all six database fixture suites. Hosted and physical evidence remain separate.
+
 Development follows Signature-Guarded Deterministic Development: inspect the exact path and state, verify hashes and signature counts, apply one bounded operation, then validate and record its result. Run only the current guarded step supplied for this checkout. The original broad bootstrap and GitHub-link scripts are not included in this starting source pack.
 
 Node is pinned by `.nvmrc`; dependencies are pinned by `package-lock.json`. `npm ci` installs those dependencies. `npm run verify` runs type checking, unit tests, production build and source preflight. `npm run pack:check` checks contract/document consistency. `node scripts/test-browser-review.mjs ABSOLUTE_NEW_REPORT.json` runs native DOM, worker and IndexedDB regression cases with an explicit local synthetic backend. `LABELXR_CHROMIUM_PATH` can select an existing compatible Chromium/Edge executable. These checks do not substitute for live provider or physical headset acceptance.

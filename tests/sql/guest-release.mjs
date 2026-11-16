@@ -24,7 +24,12 @@ async function test(name,fn){await fn();cases.push(name);}
 async function sqlClock(ids){await db.exec('ALTER TABLE public.projects DISABLE TRIGGER labelroom_project_guard');try{await db.query("update public.projects set created_at=now()-interval '25 hours',expires_at=case when kind='demo' then now()-interval '1 hour' else null end where id=any($1::uuid[])",[ids]);}finally{await db.exec('ALTER TABLE public.projects ENABLE TRIGGER labelroom_project_guard');}}
 try{
  await db.waitReady;await db.exec(fixture);
- for(const name of fs.readdirSync('supabase/migrations').filter(x=>x.endsWith('.sql')).sort())await db.exec(fs.readFileSync('supabase/migrations/'+name,'utf8'));
+ // PGlite cannot install hosted pg_cron/pg_net extensions. The scheduler
+ // migration has its own explicit Vault/pg_net fixture in cleanup-scheduler.mjs.
+ const hostedScheduler='20261114140647_bounded_cleanup_schedule.sql';
+ const migrationNames=fs.readdirSync('supabase/migrations').filter(x=>x.endsWith('.sql')).sort();
+ assert(migrationNames.includes(hostedScheduler),'Expected hosted scheduler migration is missing.');
+ for(const name of migrationNames.filter(name=>name!==hostedScheduler))await db.exec(fs.readFileSync('supabase/migrations/'+name,'utf8'));
  await db.query('insert into auth.users values($1,true),($2,true),($3,false)',[a,b,member]);
  const zip=unzipSync(fs.readFileSync('fixtures/contract-example.zip'));
  const manifest=JSON.parse(new TextDecoder().decode(zip['manifest.json'])),labels=JSON.parse(new TextDecoder().decode(zip['labels.openlabel.json']));
@@ -60,6 +65,6 @@ try{
  await test('an expired guest cannot read its row or original while cleanup is pending',async()=>{assert.equal((await role('authenticated',b,'select * from public.projects where id=$1',[expired.id])).rows.length,0);assert.equal((await role('authenticated',b,"select * from storage.objects where bucket_id='project-data'")).rows.length,0);});
  await test('cleanup refuses to finish while any object remains under the exact prefix',async()=>{await rpc('labelroom_cleanup_begin',[expired.id]);await reject(rpc('labelroom_cleanup_finish',[expired.id]),'55000');});
  await test('cleanup leaves unrelated private projects and shared demo seed untouched',async()=>{await service("insert into storage.objects(bucket_id,name) values('project-data','demo-seeds/pandaset-v1/original.lrx.zip')");await service("delete from storage.objects where bucket_id='project-data' and name=$1",[expired.storage_prefix+'/original.lrx.zip']);await rpc('labelroom_cleanup_finish',[expired.id]);await rpc('labelroom_cleanup_begin',[stagedId]);await rpc('labelroom_cleanup_finish',[stagedId]);assert.equal((await service('select id from public.projects where id=$1',[privateId])).rows.length,1);assert.equal((await service("select name from storage.objects where name='demo-seeds/pandaset-v1/original.lrx.zip'")).rows.length,1);});
- const result={schema:'labelxr-guest-release-sql/v1',passed:true,count:cases.length,cases,scope:'Actual migrations and PostgreSQL permissions/transactions using pinned PGlite 0.3.14 and synthetic Supabase auth/storage metadata. No live cloud, native object-store, concurrency or headset acceptance.'};
+ const result={schema:'labelxr-guest-release-sql/v1',passed:true,count:cases.length,cases,excludedHostedSchedulerMigration:hostedScheduler,schedulerFixture:'tests/sql/cleanup-scheduler.mjs',scope:'Actual lifecycle migrations and PostgreSQL permissions/transactions using pinned PGlite 0.3.14 and synthetic Supabase auth/storage metadata. Hosted scheduler activation is tested separately. No live cloud, native object-store, concurrency or headset acceptance.'};
  fs.writeFileSync(output,JSON.stringify(result,null,2)+'\n',{flag:'wx'});console.log(JSON.stringify(result));
 }finally{await db.close();}
