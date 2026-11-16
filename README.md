@@ -4,11 +4,11 @@ Hands-first VR review of existing point-cloud 3D boxes, with human-approved edit
 
 - GitHub: https://github.com/ahsanmoizz/Labelroom-XR
 - Local checkout: `C:\Users\hanan\Projects\labelxr`
-- Submission completion: see [the release runbook](docs/release-completion.md). Feature acceptance remains governed by `build-contract.json` and `test-contract.json`.
+- Current submission status and recording instructions: [submission preparation](docs/submission-preparation.md). Feature acceptance remains governed by `build-contract.json` and `test-contract.json`.
 
 The source implements validated PCD/OpenLABEL import, private projects, a licensed guest demo, deterministic inspection, bounded AI tools, human-approved review and undo, durable recovery, versioned saves and corrected export. The guest completion candidate adds review controls, confirmed reset, expired-session restart and bounded scheduled cleanup. A source implementation is separate from a tested hosted release: live deployment, physical hands/performance and reviewer evidence remain explicit release requirements.
 
-Open `docs/engineering-tracker.html` for historical Local PC / GitHub state. The six original guides preserve the product requirements; the current release runbook orders the remaining work for the 48-hour completion window.
+The six original guides, engineering tracker and 48-hour release runbook preserve the original plan and historical state. Use [current validation commands](docs/validation.md) and [the implementation map](implementation-map.json) for today's executable paths and evidence boundaries.
 
 See [current validation commands](docs/validation.md) for the working browser/SQL entrypoints and the read-only public build comparison. `npm run test:e2e` runs eight browser suites, including the actual SDK session and emulated hands; `npm run test:sql` runs all six database fixture suites. Hosted and physical evidence remain separate.
 

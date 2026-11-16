@@ -3,6 +3,11 @@ on:
   push:
     branches: [main, deadline/complete-guest-demo, deadline/ui-readability, deadline/final-acceptance, deadline/auth-entry, deadline/current-guest-check, deadline/session-xr, deadline/workspace-refocus, deadline/graphite-workspace, deadline/frame-navigation, deadline/refresh-ai, deadline/xr-entry, deadline/ai-evidence, deadline/ai-readable, deadline/view-tools, fix/submission-validation-20261116]
   workflow_dispatch:
+    inputs:
+      record_live_demo:
+        description: 'Attempt a real hosted demo recording; CAPTCHA may require a headed PC'
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -24,6 +29,10 @@ jobs:
       - run: mkdir -p artifacts
       - run: npm run typecheck
       - run: npm test -- --reporter=json --outputFile=artifacts/unit.json
+      - name: Independent Python converter and export validation
+        run: python3 -m unittest discover -s tools/converter -p test_converter.py -v > artifacts/converter.log 2>&1
+      - name: Production dependency advisories
+        run: npm run audit:prod > artifacts/production-audit.log 2>&1
       - run: npx playwright install --with-deps chromium
       - name: Public browser validation command (DOM, recovery, security and emulated XR)
         run: npm run test:e2e
@@ -140,7 +149,7 @@ jobs:
 
   live-demo-recording:
     needs: [review-ui, readable-windows, database-validation, public-readback]
-    if: github.ref == 'refs/heads/fix/submission-validation-20261116' && contains(github.event.head_commit.message, '[record-demo]')
+    if: github.event_name == 'workflow_dispatch' && inputs.record_live_demo == true
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     steps:

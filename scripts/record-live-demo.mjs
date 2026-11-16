@@ -10,6 +10,7 @@ const output = process.argv[2];
 assert(output && path.isAbsolute(output) && !fs.existsSync(output), 'Pass a new absolute recording directory.');
 fs.mkdirSync(output, { recursive: true });
 const origin = 'https://labelroom-xr.pages.dev';
+const headed = process.argv.includes('--headed');
 const injection = buildSync({
   stdin: { resolveDir: root, contents: `
     import {XRDevice,metaQuest3} from 'iwer';
@@ -60,7 +61,7 @@ async function button(name) { await page.getByRole('button', { name, exact: true
 const revision = () => page.locator('[data-saved-revision]').first().getAttribute('data-saved-revision');
 async function hand(name, x, y) { await page.evaluate(([name,x,y]) => window.labelxrDemoRecorder.tap(name,x,y), [name,x,y]); }
 try {
-  browser = await chromium.launch({ headless: !process.argv.includes('--headed'), ...(process.env.LABELXR_CHROMIUM_PATH ? { executablePath: process.env.LABELXR_CHROMIUM_PATH } : {}), args: process.platform === 'linux' ? ['--no-sandbox','--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader'] : [] });
+  browser = await chromium.launch({ headless: !headed, ...(process.env.LABELXR_CHROMIUM_PATH ? { executablePath: process.env.LABELXR_CHROMIUM_PATH } : {}), args: process.platform === 'linux' ? ['--no-sandbox','--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader'] : [] });
   context = await browser.newContext({ viewport: { width: 1600, height: 900 }, recordVideo: { dir: path.join(output,'raw-video'), size: { width:1600,height:900 } }, acceptDownloads: true });
   page = await context.newPage(); video = page.video();
   await page.addInitScript({ content: injection });
@@ -72,7 +73,8 @@ try {
   report.stage = 'normal-demo-security-check';
   const enter = page.getByRole('button',{name:'Enter demo',exact:true});
   await enter.waitFor({state:'visible',timeout:30_000});
-  await page.waitForFunction(() => [...document.querySelectorAll('button')].some(b=>b.textContent==='Enter demo'&&!b.disabled),{},{timeout:60_000});
+  console.log(headed ? 'Complete any security check normally in the browser. Then leave the window alone while recording runs.' : 'Waiting for the ordinary automatic security check; an interactive challenge stops this attempt.');
+  await page.waitForFunction(() => [...document.querySelectorAll('button')].some(b=>b.textContent==='Enter demo'&&!b.disabled),{},{timeout:headed?300_000:60_000});
   await enter.click(); mark('Normal anonymous sign-in');
   report.stage = 'licensed-demo-load';
   await page.getByRole('button',{name:'Open PandaSet demo',exact:true}).waitFor({timeout:60_000});
