@@ -1,50 +1,34 @@
-name: Live staging AI verification
+name: Retained staging AI diagnostics
 on:
   push:
     branches: [verify/ai-smoke-20261117]
-    paths: ['scripts/test-live-staging.mjs', '.github/workflows/staging-acceptance.yml']
+    paths: ['.github/workflows/staging-acceptance.yml']
   workflow_dispatch:
-    inputs:
-      run_ai_smoke:
-        description: 'Use at most three normal guest turns; requires staging AI enabled'
-        type: boolean
-        default: false
 permissions:
   contents: read
-concurrency:
-  group: live-staging-${{ github.ref }}
-  cancel-in-progress: false
+  actions: read
 jobs:
-  live-staging:
+  read-retained-report:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
-        with:
-          persist-credentials: false
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f
         with:
           node-version: 24.19.0
-          cache: npm
-      - run: npm ci --no-audit --no-fund
-      - name: Normal caller-owned staging workflow
+      - name: Read existing report without invoking the app or provider
         env:
-          RUN_AI_SMOKE: 'true'
+          GH_TOKEN: ${{ github.token }}
         run: |
-          args=()
-          if [ "$RUN_AI_SMOKE" = true ]; then args+=(--run-ai); fi
-          node scripts/test-live-staging.mjs "$RUNNER_TEMP/live-staging" "${args[@]}"
-      - name: Independently validate actual hosted exports
-        run: |
-          python3 tools/converter/validate.py "$RUNNER_TEMP/live-staging/original.lrx.zip" > "$RUNNER_TEMP/live-staging/source-validation.json"
-          python3 tools/converter/validate.py "$RUNNER_TEMP/live-staging/saved-export.lrx.zip" > "$RUNNER_TEMP/live-staging/export-validation.json"
-          python3 tools/converter/validate.py "$RUNNER_TEMP/live-staging/undo-export.lrx.zip" > "$RUNNER_TEMP/live-staging/undo-validation.json"
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
-        if: always()
-        with:
-          name: live-staging-${{ github.sha }}
-          path: |
-            ${{ runner.temp }}/live-staging/*report.json
-            ${{ runner.temp }}/live-staging/*validation.json
-          if-no-files-found: warn
-          retention-days: 7
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import {execFileSync} from 'node:child_process';
+          const url = 'https://api.github.com/repos/ahsanmoizz/Labelroom-XR/actions/artifacts/14272262225/zip';
+          const response = await fetch(url, {headers: {Authorization: 'Bearer ' + process.env.GH_TOKEN, Accept: 'application/vnd.github+json'}, signal: AbortSignal.timeout(30000)});
+          if (!response.ok) throw new Error('Artifact download status ' + response.status);
+          const file = process.env.RUNNER_TEMP + '/retained-ai-report.zip';
+          fs.writeFileSync(file, Buffer.from(await response.arrayBuffer()));
+          const members = execFileSync('unzip', ['-Z1', file], {encoding: 'utf8'}).trim().split('\n').filter(name => name.endsWith('report.json'));
+          if (members.length !== 1) throw new Error('Expected one retained report');
+          const report = JSON.parse(execFileSync('unzip', ['-p', file, members[0]], {encoding: 'utf8'}));
+          console.log(JSON.stringify({sourceRun:43955904716,backend:report.backend,passed:report.passed,checks:report.checks.length,modelStepRequests:report.modelStepRequests,ai:report.ai,error:report.error}, null, 2));
+          NODE
