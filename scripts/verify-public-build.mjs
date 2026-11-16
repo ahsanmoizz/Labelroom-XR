@@ -19,11 +19,22 @@ async function get(relative) {
   const url = new URL(relative, origin);
   assert(url.origin === origin.origin && !url.search && !url.hash, 'Only public same-origin paths are allowed.');
   if (cache.has(url.href)) return cache.get(url.href);
-  const response = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(30_000) });
+  // Cloudflare Pages canonically redirects /help.html and /index.html. Follow
+  // only its explicit same-origin public redirects, never another service.
+  let target = url, response;
+  for (let redirects = 0; redirects < 5; redirects++) {
+    response = await fetch(target, { redirect: 'manual', signal: AbortSignal.timeout(30_000) });
+    if (![301, 302, 303, 307, 308].includes(response.status)) break;
+    const location = response.headers.get('location');
+    assert(location && redirects < 4, 'Invalid or excessive public redirect.');
+    const next = new URL(location, target);
+    assert(next.origin === origin.origin && !next.search && !next.hash && !next.username, 'Public redirect left the allowed origin.');
+    await response.body?.cancel(); target = next;
+  }
   const reader = response.body?.getReader(), chunks = []; let length = 0;
   if (reader) for (;;) { const next = await reader.read(); if (next.done) break; length += next.value.length; if (length > 16 * 1024 * 1024) { await reader.cancel(); throw Error('Public asset exceeds the read bound.'); } chunks.push(next.value); }
   const data = Buffer.concat(chunks);
-  const result = { status: response.status, data, headers: Object.fromEntries(response.headers) };
+  const result = { status: response.status, data, headers: Object.fromEntries(response.headers), canonicalPath: target.pathname };
   cache.set(url.href, result); return result;
 }
 const report = { schema: 'labelxr-public-build-readback/v1', origin: origin.origin, commit: process.env.GITHUB_SHA || null, checkedAt: new Date().toISOString(), passed: false, hostedWrites: 0, modelRequests: 0, files: [] };
@@ -63,7 +74,7 @@ try {
   for (const file of files) {
     const relative = path.relative(path.join(root, 'dist'), file).split(path.sep).join('/');
     const local = fs.readFileSync(file), served = await get('/' + relative);
-    report.files.push({ path: relative, status: served.status, bytes: local.length, builtSha256: hash(local), servedSha256: hash(served.data), matches: served.status === 200 && hash(local) === hash(served.data) });
+    report.files.push({ path: relative, canonicalPath: served.canonicalPath, status: served.status, bytes: local.length, builtSha256: hash(local), servedSha256: hash(served.data), matches: served.status === 200 && hash(local) === hash(served.data) });
   }
   report.headers = { noSniff: index.headers['x-content-type-options'] === 'nosniff', denyFraming: index.headers['x-frame-options'] === 'DENY', xrPermissions: (index.headers['permissions-policy'] || '').includes('xr-spatial-tracking=(self)') };
   report.passed = report.files.length > 0 && report.files.every(f => f.matches) && Object.values(report.headers).every(Boolean);

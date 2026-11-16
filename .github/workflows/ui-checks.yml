@@ -137,3 +137,28 @@ jobs:
           path: ${{ runner.temp }}/labelxr-public-readback/
           if-no-files-found: warn
           retention-days: 7
+
+  live-demo-recording:
+    needs: [review-ui, readable-windows, database-validation, public-readback]
+    if: github.ref == 'refs/heads/fix/submission-validation-20261116' && contains(github.event.head_commit.message, '[record-demo]')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f
+        with:
+          node-version: 24.19.0
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npx playwright install --with-deps chromium
+      - name: Record the real hosted anonymous demo with browser Quest emulation
+        run: node scripts/record-live-demo.mjs "$RUNNER_TEMP/labelxr-live-demo"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        if: always()
+        with:
+          name: live-demo-recording-${{ github.sha }}
+          path: ${{ runner.temp }}/labelxr-live-demo/
+          if-no-files-found: warn
+          retention-days: 7
