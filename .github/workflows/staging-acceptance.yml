@@ -1,4 +1,4 @@
-name: Retained staging AI diagnostics
+name: Latest staging AI diagnostics
 on:
   push:
     branches: [verify/ai-smoke-20261117]
@@ -22,7 +22,22 @@ jobs:
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
           import {execFileSync} from 'node:child_process';
-          const url = 'https://api.github.com/repos/ahsanmoizz/Labelroom-XR/actions/artifacts/14272262225/zip';
+          const headers = {Authorization: 'Bearer ' + process.env.GH_TOKEN, Accept: 'application/vnd.github+json'};
+          const runUrl = 'https://api.github.com/repos/ahsanmoizz/Labelroom-XR/actions/runs/43955904716';
+          let state;
+          for (let attempt = 0; attempt < 14; attempt++) {
+            const response = await fetch(runUrl, {headers, signal: AbortSignal.timeout(30000)});
+            if (!response.ok) throw new Error('Run metadata status ' + response.status);
+            state = await response.json();
+            if (state.status === 'completed') break;
+            await new Promise(resolve => setTimeout(resolve, 15000));
+          }
+          if (state.status !== 'completed') throw new Error('Live check is still running; no result inferred');
+          const listed = await fetch(runUrl + '/artifacts?per_page=100', {headers, signal: AbortSignal.timeout(30000)});
+          if (!listed.ok) throw new Error('Artifact metadata status ' + listed.status);
+          const artifact = (await listed.json()).artifacts.filter(item => !item.expired && item.name === 'live-staging-0d979f63ad21f7f61ca8f2f9d6d5bf475e9abda5').sort((a,b) => b.id-a.id)[0];
+          if (!artifact) throw new Error('Current report is unavailable');
+          const url = artifact.archive_download_url;
           const response = await fetch(url, {headers: {Authorization: 'Bearer ' + process.env.GH_TOKEN, Accept: 'application/vnd.github+json'}, signal: AbortSignal.timeout(30000)});
           if (!response.ok) throw new Error('Artifact download status ' + response.status);
           const file = process.env.RUNNER_TEMP + '/retained-ai-report.zip';
@@ -30,5 +45,5 @@ jobs:
           const members = execFileSync('unzip', ['-Z1', file], {encoding: 'utf8'}).trim().split('\n').filter(name => name.endsWith('report.json'));
           if (members.length !== 1) throw new Error('Expected one retained report');
           const report = JSON.parse(execFileSync('unzip', ['-p', file, members[0]], {encoding: 'utf8'}));
-          console.log(JSON.stringify({sourceRun:43955904716,backend:report.backend,passed:report.passed,checks:report.checks.length,modelStepRequests:report.modelStepRequests,ai:report.ai,error:report.error}, null, 2));
+          console.log(JSON.stringify({sourceRun:43955904716,sourceAttempt:state.run_attempt,artifactId:artifact.id,backend:report.backend,passed:report.passed,checks:report.checks.length,modelStepRequests:report.modelStepRequests,ai:{requested:report.ai.requested,passed:report.ai.passed,error:report.ai.error,completedTurns:report.ai.completedTurns,consentRevoked:report.ai.consentRevoked,turns:report.ai.turns.map(turn=>({index:turn.index,family:turn.family,passed:turn.passed,tools:turn.tools,expectedTool:turn.expectedTool,traceableCitations:turn.traceableCitations,noAutomaticEdit:turn.noAutomaticEdit,error:turn.error}))},error:report.error}, null, 2));
           NODE
