@@ -1,4 +1,4 @@
-name: Latest staging AI diagnostics
+name: AI startup and retained diagnostics
 on:
   push:
     branches: [verify/ai-smoke-20261117]
@@ -22,6 +22,15 @@ jobs:
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
           import {execFileSync} from 'node:child_process';
+          for (const target of [
+            {environment:'staging',base:'https://aawwmcbhyyokkhhvcfmv.supabase.co',origin:'https://guest-staging.labelroom-xr.pages.dev'},
+            {environment:'production',base:'https://weziynwzjzbsctxxqmus.supabase.co',origin:'https://labelroom-xr.pages.dev'}
+          ]) {
+            const response = await fetch(target.base + '/functions/v1/agent', {method:'OPTIONS',headers:{Origin:target.origin,'Access-Control-Request-Method':'POST','Access-Control-Request-Headers':'authorization,apikey,content-type'},signal:AbortSignal.timeout(30000)});
+            const body = await response.text(); let value; try { value=JSON.parse(body); } catch {}
+            console.log(JSON.stringify({probe:'agent-preflight',environment:target.environment,status:response.status,allowOrigin:response.headers.get('access-control-allow-origin'),errorCode:value?.error?.code??null}));
+          }
+
           const headers = {Authorization: 'Bearer ' + process.env.GH_TOKEN, Accept: 'application/vnd.github+json'};
           const runUrl = 'https://api.github.com/repos/ahsanmoizz/Labelroom-XR/actions/runs/43955904716';
           let state;
