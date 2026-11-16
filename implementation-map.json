@@ -7,97 +7,160 @@
     {
       "originalPath": "src/app/lifecycle.ts",
       "status": "replacement",
-      "currentPaths": ["src/xr/hand-gate.ts", "src/xr/spatial-review.ts", "src/ui/xr-entry.ts", "src/app/host.ts"],
+      "currentPaths": [
+        "src/xr/hand-gate.ts",
+        "src/xr/spatial-review.ts",
+        "src/ui/xr-entry.ts",
+        "src/app/host.ts"
+      ],
       "note": "Pause, tracking cancellation, session teardown and account ownership are implemented across these modules. Physical sleep/tracking acceptance remains deferred."
     },
     {
       "originalPath": "src/services/demo.ts",
       "status": "replacement",
-      "currentPaths": ["src/services/projects.ts", "supabase/functions/_shared/demo-provision.ts", "supabase/functions/demo-provision/entry.ts"],
+      "currentPaths": [
+        "src/services/projects.ts",
+        "supabase/functions/_shared/demo-provision.ts",
+        "supabase/functions/demo-provision/entry.ts"
+      ],
       "note": "Guest provision/reset uses the common projects client and dedicated bounded Edge handler, not a separate frontend demo service."
     },
     {
       "originalPath": "src/ai/context.ts",
       "status": "replacement",
-      "currentPaths": ["src/ai/protocol.ts", "src/ai/tools.ts", "supabase/functions/_shared/agent.ts", "supabase/functions/_shared/agent-client.ts"],
+      "currentPaths": [
+        "src/ai/protocol.ts",
+        "src/ai/tools.ts",
+        "supabase/functions/_shared/agent.ts",
+        "supabase/functions/_shared/agent-client.ts"
+      ],
       "note": "Bounded model scope, typed tools and measured results replace the planned standalone context serializer."
     },
     {
       "originalPath": "src/xr/review-component.ts",
       "status": "replacement",
-      "currentPaths": ["src/xr/review-system.ts", "src/xr/box-picking.ts", "src/ui/spatial-review-port.ts"],
+      "currentPaths": [
+        "src/xr/review-system.ts",
+        "src/xr/box-picking.ts",
+        "src/ui/spatial-review-port.ts"
+      ],
       "note": "Stable source IDs and selection are supplied by view/picking/port modules. The production implementation does not use the planned ReviewTarget ECS component."
     },
     {
       "originalPath": "src/xr/hand-system.ts",
       "status": "replacement",
-      "currentPaths": ["src/xr/hand-gate.ts", "src/xr/spatial-review.ts", "tests/unit/spatial-review.test.ts", "scripts/test-browser-xr.mjs"],
+      "currentPaths": [
+        "src/xr/hand-gate.ts",
+        "src/xr/spatial-review.ts",
+        "tests/unit/spatial-review.test.ts",
+        "scripts/test-browser-xr.mjs"
+      ],
       "note": "Native WebXR select events and explicit tracked-hand gating replace the planned IWSDK Pressed system. Both-hand/cancel software checks pass; physical input remains unmeasured."
     },
     {
       "originalPath": "src/xr/panel-system.ts",
       "status": "replacement",
-      "currentPaths": ["src/xr/spatial-review.ts", "src/ui/spatial-review-port.ts", "src/ui/review-controls.ts"],
+      "currentPaths": [
+        "src/xr/spatial-review.ts",
+        "src/ui/spatial-review-port.ts",
+        "src/ui/review-controls.ts"
+      ],
       "note": "The world-anchored canvas panel invokes the same typed review controller as desktop controls. It replaces the planned UIKit panel system."
     },
     {
       "originalPath": "src/ui/accessibility.ts",
-      "status": "partial",
-      "currentPaths": ["src/xr/spatial-review.ts", "src/ui/workspace-shell.ts", "src/ui/workspace.css"],
-      "note": "Large labelled controls, two-hand support and responsive layout exist. No separate persistent text-scale/contrast settings module or physical readability/reach measurements are present."
+      "status": "implemented",
+      "currentPaths": [
+        "src/ui/accessibility.ts",
+        "src/ui/workspace-tools.ts",
+        "src/xr/spatial-review.ts",
+        "tests/unit/accessibility.test.ts"
+      ],
+      "note": "Device-local bounded text/panel size and high contrast settings now persist, are available in desktop guide and both-hand XR controls, and cancel held intent on changes. Storage refusal is explicit. Physical readability/reach/comfort still unmeasured."
     },
     {
       "originalPath": "public/ui/review.uikitml",
       "status": "replacement",
-      "currentPaths": ["src/xr/spatial-review.ts"],
+      "currentPaths": [
+        "src/xr/spatial-review.ts"
+      ],
       "note": "Programmatic spatial canvas buttons replace the planned UIKitML asset. The original layout geometry is a design target, not an asserted physical acceptance result."
     },
     {
       "originalPath": "supabase/functions/_shared/cleanup.ts",
       "status": "replacement",
-      "currentPaths": ["supabase/functions/_shared/project-cleanup.ts", "supabase/functions/_shared/projects.ts"],
+      "currentPaths": [
+        "supabase/functions/_shared/project-cleanup.ts",
+        "supabase/functions/_shared/projects.ts"
+      ],
       "note": "Service-only bounded cleanup rechecks eligibility before deletion. Actual production scheduler responses additionally show three completed eligible cleanups."
     },
     {
       "originalPath": "tools/converter/make_demo.py",
       "status": "implemented",
-      "currentPaths": ["tools/converter/make_demo.py", "tools/converter/test_make_demo.py", "tools/converter/demo-fault-plan.example.json"],
+      "currentPaths": [
+        "tools/converter/make_demo.py",
+        "tools/converter/test_make_demo.py",
+        "tools/converter/demo-fault-plan.example.json"
+      ],
       "note": "The offline generator validates canonical input, requires explicit distinct targets, preserves point/licence bytes and unrelated metadata, injects three disclosed faults, and writes deterministic output plus complete world-space references. Synthetic regression cases verify its numerical and refusal behavior. External rights, natural annotation correctness and a fresh independent real-clip workflow remain unverified."
     },
     {
       "originalPath": "tests/sql/review.sql",
       "status": "replacement",
-      "currentPaths": ["tests/sql/core.mjs", "tests/sql/review-budget.mjs", "scripts/test-sql.mjs"],
+      "currentPaths": [
+        "tests/sql/core.mjs",
+        "tests/sql/review-budget.mjs",
+        "scripts/test-sql.mjs"
+      ],
       "note": "Explicit pinned PGlite schema/claims/grants/transaction assertions replace the obsolete SQL entrypoint. They are synthetic fixtures, not destructive hosted tests."
     },
     {
       "originalPath": ".github/workflows/ci.yml",
-      "status": "partial",
-      "currentPaths": [".github/workflows/ui-checks.yml"],
-      "note": "Current CI runs source, browser, Windows, converter, dependency, SQL and served-byte checks. A live two-account staging acceptance job and automated backup/restore rehearsal are not supplied by this workflow."
+      "status": "replacement",
+      "currentPaths": [
+        ".github/workflows/ui-checks.yml",
+        ".github/workflows/staging-acceptance.yml",
+        "scripts/test-live-staging.mjs",
+        "scripts/test-restore.mjs"
+      ],
+      "note": "Source/browser/Linux/Windows/SQL/Python/advisory checks are complemented by caller-owned live staging integration and an isolated PostgreSQL dump/restore rehearsal. Actual per-run receipts determine acceptance. Hosted managed-backup, OTP, physical and reviewer evidence remain separate."
     },
     {
       "originalPath": "scripts/deploy.ps1",
-      "status": "partial",
-      "currentPaths": ["docs/release-completion.md", "docs/validation.md", "scripts/verify-public-build.mjs"],
-      "note": "Deployment is documented as guarded operator/provider work and current publication has a read-only byte comparison. The planned consolidated deploy.ps1 is absent; the verifier does not deploy."
+      "status": "implemented",
+      "currentPaths": [
+        "scripts/deploy.ps1",
+        "scripts/build-public.mjs",
+        "docs/deployment.md",
+        "scripts/verify-public-build.mjs"
+      ],
+      "note": "The consolidated guarded PowerShell entrypoint verifies a clean source checkout, public-only environment, generated bundles and selected project; deployment switches invoke pinned provider CLIs and exact frontend readback. Source availability and parse checks do not imply operator authentication or a successful publication."
     },
     {
       "originalPath": "docs/privacy.html",
       "status": "replacement",
-      "currentPaths": ["public/privacy.html"],
+      "currentPaths": [
+        "public/privacy.html"
+      ],
       "note": "The public site serves the actual privacy page from public/privacy.html, canonical route /privacy."
     },
     {
       "originalPath": "docs/help.html",
       "status": "replacement",
-      "currentPaths": ["public/help.html"],
+      "currentPaths": [
+        "public/help.html"
+      ],
       "note": "The public site serves the actual help page from public/help.html, canonical route /help."
     },
     {
       "originalPath": "supabase/functions/cleanup/index.ts",
       "status": "replacement",
-      "currentPaths": ["supabase/functions/project-cleanup/index.ts", "supabase/functions/project-cleanup/entry.ts", "supabase/migrations/20261114140647_bounded_cleanup_schedule.sql"],
+      "currentPaths": [
+        "supabase/functions/project-cleanup/index.ts",
+        "supabase/functions/project-cleanup/entry.ts",
+        "supabase/migrations/20261114140647_bounded_cleanup_schedule.sql"
+      ],
       "note": "The deployed project-cleanup endpoint uses a separate exact bounded bearer, no browser origin, private Vault dispatcher and 15-minute Cron job. This supersedes the originally planned X-Cleanup-Secret interface."
     }
   ]

@@ -1,0 +1,50 @@
+name: Live staging integration
+on:
+  push:
+    branches: [main, fix/finish-software-20261116]
+    paths: ['scripts/test-live-staging.mjs', '.github/workflows/staging-acceptance.yml']
+  workflow_dispatch:
+    inputs:
+      run_ai_smoke:
+        description: 'Use at most three normal guest turns; requires staging AI enabled'
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: live-staging-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  live-staging:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f
+        with:
+          node-version: 24.19.0
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Normal caller-owned staging workflow
+        env:
+          RUN_AI_SMOKE: ${{ inputs.run_ai_smoke == true && 'true' || 'false' }}
+        run: |
+          args=()
+          if [ "$RUN_AI_SMOKE" = true ]; then args+=(--run-ai); fi
+          node scripts/test-live-staging.mjs "$RUNNER_TEMP/live-staging" "${args[@]}"
+      - name: Independently validate actual hosted exports
+        run: |
+          python3 tools/converter/validate.py "$RUNNER_TEMP/live-staging/original.lrx.zip" > "$RUNNER_TEMP/live-staging/source-validation.json"
+          python3 tools/converter/validate.py "$RUNNER_TEMP/live-staging/saved-export.lrx.zip" > "$RUNNER_TEMP/live-staging/export-validation.json"
+          python3 tools/converter/validate.py "$RUNNER_TEMP/live-staging/undo-export.lrx.zip" > "$RUNNER_TEMP/live-staging/undo-validation.json"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        if: always()
+        with:
+          name: live-staging-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/live-staging/*report.json
+            ${{ runner.temp }}/live-staging/*validation.json
+          if-no-files-found: warn
+          retention-days: 7

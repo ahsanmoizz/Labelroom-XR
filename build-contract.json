@@ -432,7 +432,7 @@
       "steps": "Default large readable text, labels/icons in addition to colour, left/right hand support, focus order on desktop. Position critical controls within \u00b125\u00b0 horizontally and \u00b120\u00b0 vertically; panel around 0.65m wide at 0.8m distance.",
       "fail": "Do not claim eyes-only/voice accessibility; no voice input in scope.",
       "test": "XR-01",
-      "status": "planned"
+      "status": "implemented"
     },
     {
       "path": "public/ui/review.uikitml",
@@ -702,7 +702,7 @@
       "steps": "Run release gate, confirm remote main commit, supabase linked production project ID exact, migrations preflight, deploy edge auth-verified code, build Pages with public env only. Dashboard git integration deploys same SHA.",
       "fail": "No automatic paid resource creation; refuse wrong project or dirty working tree.",
       "test": "RELEASE-01",
-      "status": "planned"
+      "status": "implemented"
     },
     {
       "path": "supabase/config.toml",

@@ -1,7 +1,7 @@
 name: UI readability and review regression
 on:
   push:
-    branches: [main, deadline/complete-guest-demo, deadline/ui-readability, deadline/final-acceptance, deadline/auth-entry, deadline/current-guest-check, deadline/session-xr, deadline/workspace-refocus, deadline/graphite-workspace, deadline/frame-navigation, deadline/refresh-ai, deadline/xr-entry, deadline/ai-evidence, deadline/ai-readable, deadline/view-tools, fix/submission-validation-20261116, fix/continuation-demo-tools-20261116, fix/xr-emulator-recovery-20261116]
+    branches: [main, deadline/complete-guest-demo, deadline/ui-readability, deadline/final-acceptance, deadline/auth-entry, deadline/current-guest-check, deadline/session-xr, deadline/workspace-refocus, deadline/graphite-workspace, deadline/frame-navigation, deadline/refresh-ai, deadline/xr-entry, deadline/ai-evidence, deadline/ai-readable, deadline/view-tools, fix/submission-validation-20261116, fix/continuation-demo-tools-20261116, fix/xr-emulator-recovery-20261116, fix/finish-software-20261116]
   workflow_dispatch:
     inputs:
       record_live_demo:
@@ -77,6 +77,12 @@ jobs:
           cache: npm
       - run: npm ci --no-audit --no-fund
       - run: New-Item -ItemType Directory -Path artifacts -Force | Out-Null
+      - name: Parse consolidated PowerShell deployment entrypoint
+        shell: pwsh
+        run: |
+          $tokens = $null; $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $env:GITHUB_WORKSPACE 'scripts/deploy.ps1'), [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -ne 0) { throw ($errors | Out-String) }
       - name: Windows module path parser and exact-specifier regression
         run: npm test -- tests/unit/browser-module-source.test.ts --reporter=json --outputFile=artifacts/windows-path.json
       - name: Exact native publisher entrypoints in Windows Edge
@@ -128,6 +134,42 @@ jobs:
         with:
           name: database-validation-${{ github.sha }}
           path: ${{ runner.temp }}/labelxr-sql-reports/
+          if-no-files-found: warn
+          retention-days: 7
+
+  restore-rehearsal:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17.11
+        env:
+          POSTGRES_PASSWORD: labelxr_isolated_fixture_only
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f
+        with:
+          node-version: 24.19.0
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Dump and restore all application migrations and fixture history
+        run: node scripts/test-restore.mjs "$RUNNER_TEMP/labelxr-restore" --isolated-local-service
+        env:
+          PGPASSWORD: labelxr_isolated_fixture_only
+          LABELXR_RESTORE_CONTAINER: ${{ job.services.postgres.id }}
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        if: always()
+        with:
+          name: restore-rehearsal-${{ github.sha }}
+          path: ${{ runner.temp }}/labelxr-restore/restore-report.json
           if-no-files-found: warn
           retention-days: 7
 
