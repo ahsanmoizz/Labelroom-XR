@@ -14,8 +14,22 @@ fs.mkdirSync(output,{recursive:true});
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 const env={...process.env,PGHOST:'127.0.0.1',PGHOSTADDR:'127.0.0.1',PGPORT:port,PGUSER:'postgres',PGDATABASE:'postgres',PGOPTIONS:'',PGSERVICE:'',PGSERVICEFILE:''};
 const databases=['labelxr_rehearsal_source','labelxr_rehearsal_restored'];
+const container=process.env.LABELXR_RESTORE_CONTAINER;
+if(container)assert(/^[a-f0-9]{12,64}$/.test(container),'Use the exact dedicated service container ID.');
 const report={schema:'labelxr-isolated-postgres-restore/v1',startedAt:new Date().toISOString(),commit:process.env.GITHUB_SHA||null,passed:false,host:'loopback-only',syntheticSupabaseSchemas:true,hostedDatabaseRestored:false,hostedStorageRestored:false,migrations:[],checks:[]};
-function command(name,args,input){const result=spawnSync(name,args,{env,encoding:'utf8',input,timeout:120000,maxBuffer:8*1024*1024});assert.equal(result.status,0,`${name} failed: ${(result.stderr||'').slice(0,1200)}`);return result.stdout.trim();}
+function execute(name,args,input){const result=spawnSync(name,args,{env,encoding:'utf8',input,timeout:120000,maxBuffer:8*1024*1024});assert.equal(result.status,0,`${name} failed: ${(result.stderr||'').slice(0,1200)}`);return result.stdout.trim();}
+function command(name,args,input){
+ if(!container)return execute(name,args,input);
+ assert(['psql','createdb','pg_dump','pg_restore'].includes(name),'Only PostgreSQL tools belong in the isolated service.');
+ const run=(commandArgs)=>execute('docker',['exec','-i','-e','PGHOST=127.0.0.1','-e','PGHOSTADDR=127.0.0.1','-e','PGPORT=5432','-e','PGUSER=postgres','-e','PGPASSWORD',container,name,...commandArgs],input);
+ if(name==='pg_dump'){
+  const at=args.indexOf('--file');assert(at>=0);const destination=args[at+1],inside='/tmp/labelxr-rehearsal.dump',next=[...args];next[at+1]=inside;const result=run(next);execute('docker',['cp',container+':'+inside,destination]);return result;
+ }
+ if(name==='pg_restore'){
+  const source=args.at(-1),inside='/tmp/labelxr-restore-input.dump';execute('docker',['cp',source,container+':'+inside]);return run([...args.slice(0,-1),inside]);
+ }
+ return run(args);
+}
 function sql(database,text){assert(databases.includes(database)||database==='postgres');return command('psql',['--no-psqlrc','--set','ON_ERROR_STOP=1','--tuples-only','--no-align','--dbname',database],text);}
 const literal=value=>"'"+String(value).replaceAll("'","''")+"'";
 const A='11111111-1111-4111-8111-111111111111',B='22222222-2222-4222-8222-222222222222',P='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -34,7 +48,7 @@ const fingerprint=`SELECT jsonb_build_object(
  'grants',(SELECT jsonb_agg(to_jsonb(x) ORDER BY table_schema,table_name,grantee,privilege_type) FROM information_schema.table_privileges x WHERE table_schema IN ('public','storage'))
 );`;
 try{
- report.postgres=command('psql',['--version']);
+ report.postgres=command('psql',['--version']);report.toolTransport=container?'isolated-service-container':'local-loopback-client';
  assert.equal(sql('postgres',"SELECT count(*) FROM pg_database WHERE datname IN ('labelxr_rehearsal_source','labelxr_rehearsal_restored');"),'0','Existing databases must not be overwritten.');
  assert.equal(sql('postgres',"SELECT count(*) FROM pg_roles WHERE rolname IN ('anon','authenticated','service_role');"),'0','Use a new dedicated PostgreSQL instance.');
  for(const name of databases)command('createdb',[name]);

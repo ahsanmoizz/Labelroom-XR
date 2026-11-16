@@ -147,7 +147,7 @@ jobs:
           POSTGRES_PASSWORD: labelxr_isolated_fixture_only
         ports: ['5432:5432']
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U postgres"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -160,17 +160,11 @@ jobs:
           node-version: 24.19.0
           cache: npm
       - run: npm ci --no-audit --no-fund
-      - name: Select PostgreSQL 17 client tools
-        run: |
-          if [ ! -x /usr/lib/postgresql/17/bin/pg_dump ]; then
-            sudo apt-get update
-            sudo apt-get install -y postgresql-client-17
-          fi
-          echo /usr/lib/postgresql/17/bin >> "$GITHUB_PATH"
       - name: Dump and restore all application migrations and fixture history
         run: node scripts/test-restore.mjs "$RUNNER_TEMP/labelxr-restore" --isolated-local-service
         env:
           PGPASSWORD: labelxr_isolated_fixture_only
+          LABELXR_RESTORE_CONTAINER: ${{ job.services.postgres.id }}
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         if: always()
         with:
