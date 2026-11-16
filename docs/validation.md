@@ -6,6 +6,8 @@ The [controlled demo generator](../tools/converter/DEMO.md) now implements the o
 
 Recording reports distinguish browser launch, video-context creation, app loading and normal security entry. Anonymous authentication is counted only after the UI reports a connected verified account. The AI segment requires rendered `inspectBoxSupport` evidence, not just a completed response. These stronger checks do not imply that the blocked full hosted recording has completed.
 
+The hand fixture keeps production tracking/150 ms freshness guards intact. View actions observe the drawn safety state; after a documented tracking pause they assert that saved state did not change, perform an explicit native Resume, and retry that view action once. Unexpected failures still fail. An additional real-IWER case deliberately stalls one frame for 220 ms and checks that the edit pinch is cancelled until explicit Resume. No clock, guard or assertion is disabled to accommodate the emulator host. Linux also runs the ten-case hand suite three more consecutive times without test retries; each run must pass and gets its own receipt.
+
 | Command | Coverage | Boundary |
 | --- | --- | --- |
 | `npm run verify` | Typecheck, units, build and preflight | Source checks; no hosted acceptance |

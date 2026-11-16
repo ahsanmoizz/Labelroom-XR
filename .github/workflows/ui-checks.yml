@@ -1,7 +1,7 @@
 name: UI readability and review regression
 on:
   push:
-    branches: [main, deadline/complete-guest-demo, deadline/ui-readability, deadline/final-acceptance, deadline/auth-entry, deadline/current-guest-check, deadline/session-xr, deadline/workspace-refocus, deadline/graphite-workspace, deadline/frame-navigation, deadline/refresh-ai, deadline/xr-entry, deadline/ai-evidence, deadline/ai-readable, deadline/view-tools, fix/submission-validation-20261116, fix/continuation-demo-tools-20261116]
+    branches: [main, deadline/complete-guest-demo, deadline/ui-readability, deadline/final-acceptance, deadline/auth-entry, deadline/current-guest-check, deadline/session-xr, deadline/workspace-refocus, deadline/graphite-workspace, deadline/frame-navigation, deadline/refresh-ai, deadline/xr-entry, deadline/ai-evidence, deadline/ai-readable, deadline/view-tools, fix/submission-validation-20261116, fix/continuation-demo-tools-20261116, fix/xr-emulator-recovery-20261116]
   workflow_dispatch:
     inputs:
       record_live_demo:
@@ -49,6 +49,12 @@ jobs:
           VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_fixture_build_only
           VITE_TURNSTILE_SITE_KEY: '0x4AAAA000000000000000000'
           VITE_GUEST_DEMO: 'true'
+      - name: Repeat native hand pause recovery without test retries
+        run: |
+          for attempt in 1 2 3
+          do
+            node scripts/test-browser-xr.mjs "$GITHUB_WORKSPACE/artifacts/xr-repeat-$attempt.json"
+          done
       - run: npm run pack:check && npm run preflight
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         if: always()
