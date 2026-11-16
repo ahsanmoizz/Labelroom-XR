@@ -11,7 +11,8 @@ const mapped=new Set();
 for(const item of current.entries){
   if(!paths.has(item.originalPath)||mapped.has(item.originalPath))throw new Error('Invalid implementation mapping '+item.originalPath);
   mapped.add(item.originalPath);
-  if(!['replacement','partial','pending'].includes(item.status)||!item.note?.trim())throw new Error('Missing implementation scope '+item.originalPath);
+  if(!['implemented','replacement','partial','pending'].includes(item.status)||!item.note?.trim())throw new Error('Missing implementation scope '+item.originalPath);
+  if(item.status==='implemented'&&!existsSync(item.originalPath))throw new Error('Missing implemented path '+item.originalPath);
   for(const path of item.currentPaths){if(!existsSync(path))throw new Error('Missing current implementation '+path);}
   if(item.status==='replacement'&&!item.currentPaths.length)throw new Error('Replacement requires actual files '+item.originalPath);
 }

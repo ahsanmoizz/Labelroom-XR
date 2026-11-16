@@ -2,6 +2,10 @@
 
 The original six guides and file map describe the initial plan. Current executable checks are:
 
+The [controlled demo generator](../tools/converter/DEMO.md) now implements the original offline fault-injection tool. Run all converter/generator cases with `python -m unittest discover -s tools/converter -p 'test_*.py'`. Its synthetic tests do not establish a new real-clip or physical acceptance result.
+
+Recording reports distinguish browser launch, video-context creation, app loading and normal security entry. Anonymous authentication is counted only after the UI reports a connected verified account. The AI segment requires rendered `inspectBoxSupport` evidence, not just a completed response. These stronger checks do not imply that the blocked full hosted recording has completed.
+
 | Command | Coverage | Boundary |
 | --- | --- | --- |
 | `npm run verify` | Typecheck, units, build and preflight | Source checks; no hosted acceptance |

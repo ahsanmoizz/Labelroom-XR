@@ -42,7 +42,7 @@ const injection = buildSync({
   bundle: true, platform: 'browser', format: 'iife', target: 'esnext', write: false, logLevel: 'silent',
 }).outputFiles[0].text;
 
-const report = { schema: 'labelxr-live-emulator-recording/v1', origin, commit: process.env.GITHUB_SHA || null, realHostedBackend: true, syntheticBackend: false, emulatedQuest: true, physicalQuestTested: false, passed: false, steps: [], pageErrors: [], agentResponses: [] };
+const report = { schema: 'labelxr-live-emulator-recording/v1', origin, commit: process.env.GITHUB_SHA || null, realHostedBackend: true, syntheticBackend: false, emulatedQuest: true, physicalQuestTested: false, hostedAuthenticationVerified: false, stage: 'browser-launch', passed: false, steps: [], pageErrors: [], agentResponses: [] };
 let browser, context, page, video;
 const begun = Date.now();
 const mark = name => report.steps.push({ name, elapsedSeconds: Math.round((Date.now() - begun) / 1000), passed: true });
@@ -62,11 +62,13 @@ const revision = () => page.locator('[data-saved-revision]').first().getAttribut
 async function hand(name, x, y) { await page.evaluate(([name,x,y]) => window.labelxrDemoRecorder.tap(name,x,y), [name,x,y]); }
 try {
   browser = await chromium.launch({ headless: !headed, ...(process.env.LABELXR_CHROMIUM_PATH ? { executablePath: process.env.LABELXR_CHROMIUM_PATH } : {}), args: process.platform === 'linux' ? ['--no-sandbox','--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader'] : [] });
+  report.stage = 'recording-context';
   context = await browser.newContext({ viewport: { width: 1600, height: 900 }, recordVideo: { dir: path.join(output,'raw-video'), size: { width:1600,height:900 } }, acceptDownloads: true });
   page = await context.newPage(); video = page.video();
   await page.addInitScript({ content: injection });
   page.on('pageerror', error => report.pageErrors.push(error.message.slice(0,400)));
   page.on('response', response => { if (new URL(response.url()).pathname === '/functions/v1/agent') report.agentResponses.push({ status: response.status() }); });
+  report.stage = 'app-open';
   await page.goto(origin, { waitUntil:'domcontentloaded' });
   // Only the normal no-account route is used. No CAPTCHA token is manufactured,
   // no security widget is clicked, and no authentication or backend is mocked.
@@ -75,7 +77,10 @@ try {
   await enter.waitFor({state:'visible',timeout:30_000});
   console.log(headed ? 'Complete any security check normally in the browser. Then leave the window alone while recording runs.' : 'Waiting for the ordinary automatic security check; an interactive challenge stops this attempt.');
   await page.waitForFunction(() => [...document.querySelectorAll('button')].some(b=>b.textContent==='Enter demo'&&!b.disabled),{},{timeout:headed?300_000:60_000});
-  await enter.click(); mark('Normal anonymous sign-in');
+  await enter.click();
+  await page.locator('#account-container[data-account-state="connected"]').waitFor({state:'attached',timeout:60_000});
+  report.hostedAuthenticationVerified = true;
+  mark('Normal anonymous sign-in verified');
   report.stage = 'licensed-demo-load';
   await page.getByRole('button',{name:'Open PandaSet demo',exact:true}).waitFor({timeout:60_000});
   await button('Open PandaSet demo');
@@ -123,6 +128,9 @@ try {
   await caption('Optional live AI measures the selection. It never approves edits.');
   await button('Ask AI to inspect');
   await page.waitForFunction(()=>document.querySelector('[data-ai-status]')?.getAttribute('data-ai-status')==='complete',{},{timeout:90_000});
+  const measuredSupport = page.locator('.ai-evidence-card').filter({hasText:'Tool: inspectBoxSupport'});
+  assert(await measuredSupport.count()>0,'A rendered measured point-support tool result is required for the AI demonstration.');
+  report.measuredPointSupportEvidenceCount = await measuredSupport.count();
   assert.equal(Number(await revision()),initial+1); mark('Real bounded AI inspection left the saved revision unchanged');
   await page.waitForTimeout(6000); await consent.uncheck(); await button('Save AI consent');
   await page.waitForFunction(()=>document.querySelector('[data-ai-status]')?.getAttribute('data-ai-status')==='consent-required');
@@ -145,7 +153,13 @@ try {
   report.passed = report.pageErrors.length===0;
   report.stage = 'complete';
 } catch(error) {
-  report.error = error.message.slice(0,1500);
+  const message = error instanceof Error ? error.message : String(error);
+  report.error = message.split('\n')[0].slice(0,1500);
+  if(report.stage==='browser-launch') {
+    report.launchDiagnostics = message.split('\n')
+      .filter(line=>!line.includes('<launching>')&&/fatal|error|failed|denied|closed|permission|operation|exited|target/i.test(line))
+      .slice(-12).map(line=>line.slice(0,450));
+  }
   if(page){await page.screenshot({path:path.join(output,'stopped.png')}).catch(()=>{});report.visibleText=await page.locator('body').innerText().then(t=>t.slice(0,16000)).catch(()=>null);}
   process.exitCode=1;
 } finally {

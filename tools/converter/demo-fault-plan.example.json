@@ -1,0 +1,6 @@
+{
+  "schemaVersion": "labelxr-demo-fault-plan/v1",
+  "offset": {"frameId": "0", "objectId": "box-A", "axis": "x", "metres": 0.4},
+  "duplicate": {"frameId": "0", "objectId": "box-B", "duplicateId": "demo-duplicate-B"},
+  "dimensionJump": {"frameId": "1", "objectId": "box-C", "axis": "x", "factor": 1.4}
+}
