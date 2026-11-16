@@ -45,10 +45,10 @@ const fingerprint=`SELECT jsonb_build_object(
  'policies',(SELECT coalesce(jsonb_agg(to_jsonb(x) ORDER BY schemaname,tablename,policyname),'[]') FROM pg_policies x WHERE schemaname IN ('public','storage')),
  'rls',(SELECT jsonb_agg(jsonb_build_array(n.nspname,c.relname,c.relrowsecurity) ORDER BY n.nspname,c.relname) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE c.relkind='r' AND n.nspname IN ('public','storage')),
  'functions',(SELECT jsonb_agg(jsonb_build_array(n.nspname,p.proname,pg_get_function_identity_arguments(p.oid),p.prosecdef,p.proconfig,p.proacl::text,pg_get_functiondef(p.oid)) ORDER BY n.nspname,p.proname,p.oid::regprocedure::text) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname IN ('public','labelroom_private','auth')),
- 'grants',(SELECT jsonb_agg(to_jsonb(x) ORDER BY table_schema,table_name,grantee,privilege_type) FROM information_schema.table_privileges x WHERE table_schema IN ('public','storage'))
+ 'grants',(SELECT jsonb_agg((to_jsonb(x)-'table_catalog') ORDER BY table_schema,table_name,grantee,privilege_type) FROM information_schema.table_privileges x WHERE table_schema IN ('public','storage'))
 );`;
 try{
- report.postgres=command('psql',['--version']);report.toolTransport=container?'isolated-service-container':'local-loopback-client';
+ report.postgres=command('psql',['--version']);report.toolTransport=container?'isolated-service-container':'local-loopback-client';report.normalization='Only table_privileges.table_catalog is omitted: source and restored databases intentionally have different names. All grantor/grantee/object/privilege/grantability fields remain compared.';
  assert.equal(sql('postgres',"SELECT count(*) FROM pg_database WHERE datname IN ('labelxr_rehearsal_source','labelxr_rehearsal_restored');"),'0','Existing databases must not be overwritten.');
  assert.equal(sql('postgres',"SELECT count(*) FROM pg_roles WHERE rolname IN ('anon','authenticated','service_role');"),'0','Use a new dedicated PostgreSQL instance.');
  for(const name of databases)command('createdb',[name]);
