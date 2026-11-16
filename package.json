@@ -41,7 +41,8 @@
     "supabase": "2.120.0",
     "typescript": "5.9.3",
     "vite": "7.3.7",
-    "vitest": "3.2.7"
+    "vitest": "3.2.7",
+    "wrangler": "4.163.0"
   },
   "overrides": {
     "sharp": "0.35.4",

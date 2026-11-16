@@ -3,6 +3,7 @@ import type {World} from '@iwsdk/core';
 import {BufferAttribute,BufferGeometry,CanvasTexture,Group,Line,LineBasicMaterial,Mesh,MeshBasicMaterial,PlaneGeometry,Quaternion,Ray,Raycaster,SRGBColorSpace,Vector3} from 'three';
 import type {DepthView,DepthProjection,InspectionState} from './inspection';
 import {paintDepthProjection} from '../ui/depth-canvas';
+import {displayPreferences,displaySizes} from '../ui/accessibility';
 import {createHandIntentGate,type Hand,type HandSample} from './hand-gate';
 import {spatialFields,type SpatialAction,type SpatialChoice,type SpatialField,type SpatialReviewPort} from '../ui/spatial-review-port';
 type SpatialWorld=Pick<World,'createTransformEntity'> & Partial<Pick<World,'onXRFrame'|'xrSession'|'xrReferenceSpace'|'player'>>;
@@ -19,17 +20,19 @@ export function mountSpatialReview(world:SpatialWorld,port:SpatialReviewPort,vie
   const geometry=new PlaneGeometry(0.70,0.875),material=new MeshBasicMaterial({map:texture,toneMapped:false});
   const mesh=new Mesh(geometry,material),group=new Group();group.name='LabelRoom seated review';group.add(mesh);group.visible=false;
   let entity:ReturnType<SpatialWorld['createTransformEntity']>;try{entity=world.createTransformEntity(group,{persistent:false})}catch(error){for(const close of[()=>group.clear(),()=>geometry.dispose(),()=>material.dispose(),()=>texture.dispose()])try{close()}catch{}throw error}
-  const gate=createHandIntentGate(),caster=new Raycaster();
+  const gate=createHandIntentGate(),caster=new Raycaster(),preferences=displayPreferences(doc);
+  group.scale.setScalar(preferences.read().textSize/100);
   const rays={} as Record<Hand,{line:Line;geometry:BufferGeometry;material:LineBasicMaterial;positions:BufferAttribute}>;
   for(const hand of ['left','right'] as const){const positions=new BufferAttribute(new Float32Array(6),3),g=new BufferGeometry();g.setAttribute('position',positions);const m=new LineBasicMaterial({color:0x80e1d5,depthTest:false}),line=new Line(g,m);line.frustumCulled=false;line.visible=false;line.renderOrder=3;group.add(line);rays[hand]={line,geometry:g,material:m,positions};}
+  let unsubscribeDisplay=()=>{};
   let cleanupFailed=false,closed=false,page:'select'|'edit'|'review'|'view'='select',buttons:Button[]=[],lastPaint='',hover='',session:XRSession|undefined,recenter=true,lastFrame=0,viewerTracked=false;
   const head=new Vector3(),headRotation=new Quaternion(),headForward=new Vector3(),headRight=new Vector3();
   const targets:Record<Hand,string>={left:'',right:''};
-  function context(){return JSON.stringify({page,...port.read(),inspectionVersion:view.inspection?.()?.version})}
+  function context(){return JSON.stringify({page,...port.read(),display:preferences.read(),inspectionVersion:view.inspection?.()?.version})}
   function wrap(text:string,y:number,lines=3){const words=text.split(/\s+/);let line='',row=0;for(const word of words){const next=line?line+' '+word:word;if(ctx!.measureText(next).width>W-72&&line){ctx!.fillText(line,36,y+row*34);line=word;if(++row>=lines)return}else line=next}if(row<lines)ctx!.fillText(line,36,y+row*34)}
   function paint(){
-    if(closed)return;const model=port.read(),state=gate.state(),inspection=view.inspection?.(),key=JSON.stringify({model,state,page,hover,inspectionVersion:inspection?.version});if(key===lastPaint)return;lastPaint=key;buttons=[];
-    ctx!.fillStyle='#101e2d';ctx!.fillRect(0,0,W,H);ctx!.textAlign='left';ctx!.font='bold 38px system-ui';ctx!.fillStyle='#f2f8ff';ctx!.fillText('LabelRoom · seated review',36,55);
+    if(closed)return;const model=port.read(),state=gate.state(),inspection=view.inspection?.(),display=preferences.read(),key=JSON.stringify({model,state,page,hover,display,inspectionVersion:inspection?.version});if(key===lastPaint)return;lastPaint=key;buttons=[];
+    ctx!.fillStyle=display.highContrast?'#000000':'#101e2d';ctx!.fillRect(0,0,W,H);ctx!.textAlign='left';ctx!.font='bold 38px system-ui';ctx!.fillStyle='#f2f8ff';ctx!.fillText('LabelRoom · seated review',36,55);
     ctx!.font='27px system-ui';ctx!.fillStyle='#b9eaff';ctx!.fillText('Saved revision '+(model.revision??'—')+' · '+model.phase,36,100);
     ctx!.fillStyle=state.paused?'#ffd28e':'#f2f8ff';wrap(state.paused?state.reason:model.message,145,3);
     function button(key:string,label:string,x:number,y:number,w:number,enabled=true){const b={key,label,x,y,w,h:68,enabled};buttons.push(b);ctx!.fillStyle=!enabled?'#283b49':hover===key?'#b5f4e9':'#80e1d5';ctx!.fillRect(x,y,w,b.h);ctx!.font='26px system-ui';ctx!.fillStyle=enabled?'#08202b':'#91a5b3';ctx!.textAlign='center';const fit=label.length>29?label.slice(0,28)+'…':label;ctx!.fillText(fit,x+w/2,y+44);ctx!.textAlign='left';}
@@ -41,7 +44,8 @@ export function mountSpatialReview(world:SpatialWorld,port:SpatialReviewPort,vie
     if(page==='select'){
       const names:SpatialChoice[]=['frame','object','reason','issue','partner'];
       names.forEach((name,i)=>{const c=model.choices[name],y=480+i*100;button('cycle:'+name+':-1','‹',36,y,100,!state.paused&&!c.disabled);button('cycle:'+name+':1','›',888,y,100,!state.paused&&!c.disabled);ctx!.fillStyle='#f2f8ff';ctx!.font='25px system-ui';ctx!.fillText(name.toUpperCase()+': '+c.value.slice(0,41),156,y+43)});
-      ctx!.fillStyle='#b9cbd7';ctx!.font='25px system-ui';wrap('Point at a box and pinch to select it. Amber outlines mark the selected occurrence. Source units are metres.',1030,3);
+      button('display:size','Text/panel: '+display.textSize+'%',36,1030,464,!state.paused);
+      button('display:contrast','Contrast: '+(display.highContrast?'HIGH':'NORMAL'),520,1030,464,!state.paused);
     }else if(page==='edit'){
       const labels=['X','Y','Z','Length','Width','Height','Yaw °'];
       spatialFields.forEach((name,i)=>{const f=model.fields[name],y=470+i*80;button('nudge:'+name+':-1','−',36,y,110,!state.paused&&!f.disabled);button('nudge:'+name+':1','+',878,y,110,!state.paused&&!f.disabled);ctx!.fillStyle='#f2f8ff';ctx!.font='27px system-ui';ctx!.fillText(labels[i]+': '+f.value.slice(0,30),172,y+43)});
@@ -95,6 +99,7 @@ export function mountSpatialReview(world:SpatialWorld,port:SpatialReviewPort,vie
     if(key==='recenter'){recenter=true;return}
     if(key.startsWith('page:')){page=key.slice(5)as typeof page;return}
     const [kind,name,delta]=key.split(':');
+    if(kind==='display'){const current=preferences.read();preferences.set(name==='size'?{...current,textSize:displaySizes[(displaySizes.indexOf(current.textSize)+1)%displaySizes.length]}:{...current,highContrast:!current.highContrast});return}
     if(kind==='view'){if(name==='isolate')view.setIsolation?.(true);if(name==='all')view.setIsolation?.(false);if(name==='left')view.rotateView?.(-15);if(name==='right')view.rotateView?.(15);if(name==='reset')view.resetInspection?.();}
     if(kind==='depth')view.setDepthView?.(name as DepthView);
     if(kind==='cycle')port.cycle(name as SpatialChoice,Number(delta)as -1|1);
@@ -126,8 +131,9 @@ export function mountSpatialReview(world:SpatialWorld,port:SpatialReviewPort,vie
   });
   }catch(error){try{dispose()}catch{}throw error}
   doc.addEventListener('visibilitychange',sessionPause);
+  unsubscribeDisplay=preferences.subscribe(()=>{group.scale.setScalar(preferences.read().textSize/100);gate.pause('Display changed. Release your pinch, then choose Resume.');paint()});
   function onAbort(){try{dispose()}catch{cleanupFailed=true}}
-  function dispose(){if(closed){if(cleanupFailed)throw Error('Spatial panel cleanup failed.');return}closed=true;paintedProjection=undefined;depthCanvas.width=depthCanvas.height=1;stop();unbind();doc.removeEventListener('visibilitychange',sessionPause);signal.removeEventListener('abort',onAbort);gate.dispose();let failed=false;for(const close of[()=>entity.dispose({disposeResources:false}),()=>group.removeFromParent(),()=>group.clear(),()=>geometry.dispose(),()=>material.dispose(),()=>texture.dispose(),...(['left','right']as const).flatMap(h=>[()=>rays[h].geometry.dispose(),()=>rays[h].material.dispose()])])try{close()}catch{failed=true}if(failed){cleanupFailed=true;throw Error('Spatial panel cleanup failed.');}}
+  function dispose(){if(closed){if(cleanupFailed)throw Error('Spatial panel cleanup failed.');return}closed=true;unsubscribeDisplay();paintedProjection=undefined;depthCanvas.width=depthCanvas.height=1;stop();unbind();doc.removeEventListener('visibilitychange',sessionPause);signal.removeEventListener('abort',onAbort);gate.dispose();let failed=false;for(const close of[()=>entity.dispose({disposeResources:false}),()=>group.removeFromParent(),()=>group.clear(),()=>geometry.dispose(),()=>material.dispose(),()=>texture.dispose(),...(['left','right']as const).flatMap(h=>[()=>rays[h].geometry.dispose(),()=>rays[h].material.dispose()])])try{close()}catch{failed=true}if(failed){cleanupFailed=true;throw Error('Spatial panel cleanup failed.');}}
   signal.addEventListener('abort',onAbort,{once:true});try{if(signal.aborted)dispose();else paint()}catch(error){try{dispose()}catch{}throw error}
   return{dispose};
 }

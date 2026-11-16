@@ -1,3 +1,4 @@
+import {mountDisplaySettings} from './accessibility';
 let nextToolsId = 0;
 
 /** Visibility controls retain the mounted review, form values and scene resource. */
@@ -43,7 +44,8 @@ export function mountWorkspaceTools(root: HTMLElement, panel: HTMLElement, accou
   for (const [text, href] of [['Detailed help', '/help.html'], ['Privacy and data', '/privacy.html']]) {
     const link = doc.createElement('a'); link.textContent = text; link.href = href; link.target = '_blank'; link.rel = 'noopener'; links.append(link);
   }
-  dialog.append(header, intro, steps, more, links); root.append(toolbar, dialog);
+  const display = mountDisplaySettings(doc);
+  dialog.append(header, intro, display.element, steps, more, links); root.append(toolbar, dialog);
   let closed = false, restore: { panel: boolean; account?: boolean } | undefined;
   function render() {
     controls.textContent = panel.hidden ? 'Show controls' : 'Hide controls'; controls.setAttribute('aria-expanded', String(!panel.hidden));
@@ -70,7 +72,7 @@ export function mountWorkspaceTools(root: HTMLElement, panel: HTMLElement, accou
     controls.removeEventListener('click', toggleControls); accountButton.removeEventListener('click', toggleAccount);
     focus.removeEventListener('click', focusScene); guideButton.removeEventListener('click', openGuide);
     close.removeEventListener('click', closeGuide); dialog.removeEventListener('close', guideClosed);
-    closeGuide(); toolbar.remove(); dialog.remove(); panel.hidden = initiallyHidden; panel.id = panelId;
+    closeGuide(); display.dispose(); toolbar.remove(); dialog.remove(); panel.hidden = initiallyHidden; panel.id = panelId;
     if (account) account.hidden = accountInitiallyHidden ?? false;
   } };
 }

@@ -4,7 +4,7 @@ Hands-first VR review of existing point-cloud 3D boxes, with human-approved edit
 
 - GitHub: https://github.com/ahsanmoizz/Labelroom-XR
 - Local checkout: `C:\Users\hanan\Projects\labelxr`
-- Current submission status and recording instructions: [submission preparation](docs/submission-preparation.md). Feature acceptance remains governed by `build-contract.json` and `test-contract.json`.
+- Current submission status and recording instructions: [submission preparation](docs/submission-preparation.md). See [remaining acceptance and live/restore checks](docs/remaining-acceptance.md) and [deployment](docs/deployment.md). Feature acceptance remains governed by `build-contract.json` and `test-contract.json`.
 
 The source implements validated PCD/OpenLABEL import, private projects, a licensed guest demo, deterministic inspection, bounded AI tools, human-approved review and undo, durable recovery, versioned saves and corrected export. The guest completion candidate adds review controls, confirmed reset, expired-session restart and bounded scheduled cleanup. A source implementation is separate from a tested hosted release: live deployment, physical hands/performance and reviewer evidence remain explicit release requirements.
 
