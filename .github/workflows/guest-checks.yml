@@ -1,0 +1,33 @@
+name: Discovered guest lifecycle collector
+on:
+  push:
+    branches: [deadline/adaptive-guest]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: guest-checks-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  collector:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f
+        with:
+          node-version: 24.19.0
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: mkdir -p artifacts
+      - run: npm run typecheck
+      - run: npx playwright install --with-deps chromium
+      - run: node scripts/test-browser-review.mjs "$GITHUB_WORKSPACE/artifacts/browser.json"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        if: always()
+        with:
+          name: guest-collector-${{ github.sha }}
+          path: artifacts/
+          retention-days: 3

@@ -1,0 +1,16 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {createRequire} from 'node:module';
+import crypto from 'node:crypto';
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
+const [mode]=process.argv.slice(2);
+if(process.argv.length!==3||!['--write','--verify'].includes(mode))throw Error('Use --write or --verify.');
+const esbuild=createRequire(path.join(root,'package.json'))('esbuild');
+const lock=JSON.parse(fs.readFileSync(path.join(root,'package-lock.json'),'utf8'));
+if(lock.packages['node_modules/esbuild'].version!==esbuild.version)throw Error('Compiler differs from lockfile.');
+const result=esbuild.buildSync({absWorkingDir:root,entryPoints:['supabase/functions/project-cleanup/entry.ts'],bundle:true,format:'esm',platform:'neutral',target:'es2022',packages:'external',legalComments:'none',charset:'utf8',write:false,outfile:'index.ts',banner:{js:'// LABELXR-PROJECT-CLEANUP-BUNDLE-v1\n// Generated from reviewed service-only cleanup source.'}});
+if(result.outputFiles.length!==1)throw Error('Unexpected outputs.');
+const bytes=Buffer.from(result.outputFiles[0].contents),target=path.join(root,'supabase/functions/project-cleanup/index.ts');
+if(mode==='--write')fs.writeFileSync(target,bytes);else if(!fs.readFileSync(target).equals(bytes))throw Error('Generated cleanup endpoint differs.');
+console.log(JSON.stringify({schema:'labelxr-project-cleanup-bundle/v1',passed:true,bytes:bytes.length,sha256:crypto.createHash('sha256').update(bytes).digest('hex')}));

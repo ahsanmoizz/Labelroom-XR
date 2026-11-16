@@ -16,7 +16,7 @@ export interface ParsedOpenLabel {
   frames: readonly OpenLabelFrame[];
 }
 export class OpenLabelParseError extends Error {
-  readonly name = 'OpenLabelParseError';
+  override readonly name = 'OpenLabelParseError';
   constructor(readonly code: string, readonly filePath: string, readonly field: string,
     readonly frameId: string | null, readonly objectId: string | null, detail: string) {
     super(`${filePath} | ${field}: ${detail}`);

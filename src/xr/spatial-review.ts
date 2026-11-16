@@ -1,10 +1,12 @@
 // LABELXR-SEATED-HAND-REVIEW-v1
 import type {World} from '@iwsdk/core';
 import {BufferAttribute,BufferGeometry,CanvasTexture,Group,Line,LineBasicMaterial,Mesh,MeshBasicMaterial,PlaneGeometry,Quaternion,Ray,Raycaster,SRGBColorSpace,Vector3} from 'three';
+import type {DepthView,DepthProjection,InspectionState} from './inspection';
+import {paintDepthProjection} from '../ui/depth-canvas';
 import {createHandIntentGate,type Hand,type HandSample} from './hand-gate';
 import {spatialFields,type SpatialAction,type SpatialChoice,type SpatialField,type SpatialReviewPort} from '../ui/spatial-review-port';
 type SpatialWorld=Pick<World,'createTransformEntity'> & Partial<Pick<World,'onXRFrame'|'xrSession'|'xrReferenceSpace'|'player'>>;
-interface Presentation {pick(ray:Ray):{frameId:string;objectId:string;distance:number}|undefined;highlight(frameId:string,objectId:string):void;recenter():void}
+interface Presentation {pick(ray:Ray):{frameId:string;objectId:string;distance:number}|undefined;highlight(frameId:string,objectId:string):void;recenter():void;resetInspection?():unknown;inspection?():InspectionState|undefined;setIsolation?(enabled:boolean):unknown;rotateView?(delta:number):unknown;setDepthView?(view:DepthView):unknown}
 interface Button {key:string;label:string;x:number;y:number;w:number;h:number;enabled:boolean}
 const W=1024,H=1280;
 /** World-anchored panel. Native selectstart/end are pinches; every edit goes through the existing controller. */
@@ -12,6 +14,7 @@ export function mountSpatialReview(world:SpatialWorld,port:SpatialReviewPort,vie
   if(!world.onXRFrame)return {dispose(){}};
   const canvas=doc.createElement('canvas');canvas.width=W;canvas.height=H;
   const ctx=canvas.getContext('2d');if(!ctx)throw Error('Spatial panel drawing is unavailable.');
+  const depthCanvas=doc.createElement('canvas');depthCanvas.width=948;depthCanvas.height=240;const depthContext=depthCanvas.getContext('2d');let paintedProjection:DepthProjection|undefined;
   const texture=new CanvasTexture(canvas);texture.colorSpace=SRGBColorSpace;
   const geometry=new PlaneGeometry(0.70,0.875),material=new MeshBasicMaterial({map:texture,toneMapped:false});
   const mesh=new Mesh(geometry,material),group=new Group();group.name='LabelRoom seated review';group.add(mesh);group.visible=false;
@@ -19,19 +22,20 @@ export function mountSpatialReview(world:SpatialWorld,port:SpatialReviewPort,vie
   const gate=createHandIntentGate(),caster=new Raycaster();
   const rays={} as Record<Hand,{line:Line;geometry:BufferGeometry;material:LineBasicMaterial;positions:BufferAttribute}>;
   for(const hand of ['left','right'] as const){const positions=new BufferAttribute(new Float32Array(6),3),g=new BufferGeometry();g.setAttribute('position',positions);const m=new LineBasicMaterial({color:0x80e1d5,depthTest:false}),line=new Line(g,m);line.frustumCulled=false;line.visible=false;line.renderOrder=3;group.add(line);rays[hand]={line,geometry:g,material:m,positions};}
-  let cleanupFailed=false,closed=false,page:'select'|'edit'|'review'='select',buttons:Button[]=[],lastPaint='',hover='',session:XRSession|undefined,recenter=true,lastFrame=0,viewerTracked=false;
+  let cleanupFailed=false,closed=false,page:'select'|'edit'|'review'|'view'='select',buttons:Button[]=[],lastPaint='',hover='',session:XRSession|undefined,recenter=true,lastFrame=0,viewerTracked=false;
   const head=new Vector3(),headRotation=new Quaternion(),headForward=new Vector3(),headRight=new Vector3();
   const targets:Record<Hand,string>={left:'',right:''};
-  function context(){return JSON.stringify({page,...port.read()})}
+  function context(){return JSON.stringify({page,...port.read(),inspectionVersion:view.inspection?.()?.version})}
   function wrap(text:string,y:number,lines=3){const words=text.split(/\s+/);let line='',row=0;for(const word of words){const next=line?line+' '+word:word;if(ctx!.measureText(next).width>W-72&&line){ctx!.fillText(line,36,y+row*34);line=word;if(++row>=lines)return}else line=next}if(row<lines)ctx!.fillText(line,36,y+row*34)}
   function paint(){
-    if(closed)return;const model=port.read(),state=gate.state(),key=JSON.stringify({model,state,page,hover});if(key===lastPaint)return;lastPaint=key;buttons=[];
+    if(closed)return;const model=port.read(),state=gate.state(),inspection=view.inspection?.(),key=JSON.stringify({model,state,page,hover,inspectionVersion:inspection?.version});if(key===lastPaint)return;lastPaint=key;buttons=[];
     ctx!.fillStyle='#101e2d';ctx!.fillRect(0,0,W,H);ctx!.textAlign='left';ctx!.font='bold 38px system-ui';ctx!.fillStyle='#f2f8ff';ctx!.fillText('LabelRoom · seated review',36,55);
     ctx!.font='27px system-ui';ctx!.fillStyle='#b9eaff';ctx!.fillText('Saved revision '+(model.revision??'—')+' · '+model.phase,36,100);
     ctx!.fillStyle=state.paused?'#ffd28e':'#f2f8ff';wrap(state.paused?state.reason:model.message,145,3);
     function button(key:string,label:string,x:number,y:number,w:number,enabled=true){const b={key,label,x,y,w,h:68,enabled};buttons.push(b);ctx!.fillStyle=!enabled?'#283b49':hover===key?'#b5f4e9':'#80e1d5';ctx!.fillRect(x,y,w,b.h);ctx!.font='26px system-ui';ctx!.fillStyle=enabled?'#08202b':'#91a5b3';ctx!.textAlign='center';const fit=label.length>29?label.slice(0,28)+'…':label;ctx!.fillText(fit,x+w/2,y+44);ctx!.textAlign='left';}
     button(state.paused?'resume':'pause',state.paused?'Resume':'Pause',36,248,300);
     button('recenter','Recenter view',356,248,300,!state.paused);
+    button('page:view','VIEW TOOLS',676,248,312,!state.paused&&!!inspection);
     ctx!.font='23px system-ui';ctx!.fillStyle='#b9cbd7';ctx!.fillText('Point and pinch. Release on the same control.',36,353);
     for(const [i,p]of(['select','edit','review']as const).entries())button('page:'+p,p.toUpperCase(),36+i*320,380,300,!state.paused);
     if(page==='select'){
@@ -42,6 +46,15 @@ export function mountSpatialReview(world:SpatialWorld,port:SpatialReviewPort,vie
       const labels=['X','Y','Z','Length','Width','Height','Yaw °'];
       spatialFields.forEach((name,i)=>{const f=model.fields[name],y=470+i*80;button('nudge:'+name+':-1','−',36,y,110,!state.paused&&!f.disabled);button('nudge:'+name+':1','+',878,y,110,!state.paused&&!f.disabled);ctx!.fillStyle='#f2f8ff';ctx!.font='27px system-ui';ctx!.fillText(labels[i]+': '+f.value.slice(0,30),172,y+43)});
       ctx!.font='24px system-ui';ctx!.fillStyle='#b9cbd7';ctx!.fillText('Each tap: 0.01 m or 1°. Values remain a local draft.',36,1075);
+    }else if(page==='view'){
+      const ready=!state.paused&&model.phase==='ready'&&!!inspection;
+      button('view:isolate',inspection?.isolated?'Object isolated':'Isolate selected',36,480,464,ready&&!!inspection?.canIsolate&&!inspection?.isolated);
+      button('view:all','Show all objects',520,480,464,ready&&!!inspection?.isolated);
+      button('view:left','Rotate left 15°',36,580,464,ready);button('view:right','Rotate right 15°',520,580,464,ready);
+      button('view:reset','Reset view',36,680,464,ready);button('depth:scene','3D scene',520,680,464,ready);
+      for(const [i,mode] of (['top','front','side'] as const).entries())button('depth:'+mode,({top:'Top · X/Y',front:'Front · X/Z',side:'Side · Y/Z'})[mode],36+i*320,780,300,ready);
+      if(inspection?.projection){if(depthContext&&paintedProjection!==inspection.projection){paintDepthProjection(depthContext,inspection.projection,0,0,948,240);paintedProjection=inspection.projection;}if(depthContext)ctx!.drawImage(depthCanvas,36,870);else paintDepthProjection(ctx!,inspection.projection,36,870,948,240);}
+      else{ctx!.fillStyle='#b9cbd7';ctx!.font='25px system-ui';wrap('Select a box, then isolate its 0.5 m neighbourhood. Choose a source-axis depth projection. Display rotation never changes source coordinates or saved labels.',900,5);}
     }else{
       const names:SpatialAction[]=['keep','duplicate','compare','undo','retry','reload','restore','discard'];
       names.forEach((name,i)=>{const a=model.actions[name];button('action:'+name,a.label,36+i%2*484,480+Math.floor(i/2)*100,464,!state.paused&&!a.disabled)});
@@ -82,6 +95,8 @@ export function mountSpatialReview(world:SpatialWorld,port:SpatialReviewPort,vie
     if(key==='recenter'){recenter=true;return}
     if(key.startsWith('page:')){page=key.slice(5)as typeof page;return}
     const [kind,name,delta]=key.split(':');
+    if(kind==='view'){if(name==='isolate')view.setIsolation?.(true);if(name==='all')view.setIsolation?.(false);if(name==='left')view.rotateView?.(-15);if(name==='right')view.rotateView?.(15);if(name==='reset')view.resetInspection?.();}
+    if(kind==='depth')view.setDepthView?.(name as DepthView);
     if(kind==='cycle')port.cycle(name as SpatialChoice,Number(delta)as -1|1);
     if(kind==='nudge')port.nudge(name as SpatialField,Number(delta)as -1|1);
     if(kind==='action')port.activate(name as SpatialAction);
@@ -112,7 +127,7 @@ export function mountSpatialReview(world:SpatialWorld,port:SpatialReviewPort,vie
   }catch(error){try{dispose()}catch{}throw error}
   doc.addEventListener('visibilitychange',sessionPause);
   function onAbort(){try{dispose()}catch{cleanupFailed=true}}
-  function dispose(){if(closed){if(cleanupFailed)throw Error('Spatial panel cleanup failed.');return}closed=true;stop();unbind();doc.removeEventListener('visibilitychange',sessionPause);signal.removeEventListener('abort',onAbort);gate.dispose();let failed=false;for(const close of[()=>entity.dispose({disposeResources:false}),()=>group.removeFromParent(),()=>group.clear(),()=>geometry.dispose(),()=>material.dispose(),()=>texture.dispose(),...(['left','right']as const).flatMap(h=>[()=>rays[h].geometry.dispose(),()=>rays[h].material.dispose()])])try{close()}catch{failed=true}if(failed){cleanupFailed=true;throw Error('Spatial panel cleanup failed.');}}
+  function dispose(){if(closed){if(cleanupFailed)throw Error('Spatial panel cleanup failed.');return}closed=true;paintedProjection=undefined;depthCanvas.width=depthCanvas.height=1;stop();unbind();doc.removeEventListener('visibilitychange',sessionPause);signal.removeEventListener('abort',onAbort);gate.dispose();let failed=false;for(const close of[()=>entity.dispose({disposeResources:false}),()=>group.removeFromParent(),()=>group.clear(),()=>geometry.dispose(),()=>material.dispose(),()=>texture.dispose(),...(['left','right']as const).flatMap(h=>[()=>rays[h].geometry.dispose(),()=>rays[h].material.dispose()])])try{close()}catch{failed=true}if(failed){cleanupFailed=true;throw Error('Spatial panel cleanup failed.');}}
   signal.addEventListener('abort',onAbort,{once:true});try{if(signal.aborted)dispose();else paint()}catch(error){try{dispose()}catch{}throw error}
   return{dispose};
 }

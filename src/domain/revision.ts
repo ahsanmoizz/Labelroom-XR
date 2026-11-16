@@ -54,7 +54,7 @@ export type ValidatedReviewRequest = Frozen<{
   candidateRevision?: number; committedRevision?: number; duplicateIoU?: number; issueFingerprint?: string;
 }>;
 export class ReviewCommandError extends Error {
-  readonly name = 'ReviewCommandError';
+  override readonly name = 'ReviewCommandError';
   constructor(readonly code: 'CONTEXT' | 'COMMAND' | 'CONFLICT' | 'LIMIT' | 'BEFORE' | 'DUPLICATE' | 'FINGERPRINT' | 'UNDO' | 'REPLAY' | 'HASH', message: string) { super(message); }
 }
 function requireReview(ok: unknown, code: ReviewCommandError['code'], message: string): asserts ok {

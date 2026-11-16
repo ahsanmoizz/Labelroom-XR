@@ -24,24 +24,48 @@ export function mountLoginPanel(root: HTMLElement, auth: Account, challenge: Cha
   if (options.captchaElement.ownerDocument !== doc || options.captchaElement === root) throw new Error('Security-check container differs.');
   const element = <K extends keyof HTMLElementTagNameMap>(tag: K, text = '') => { const node = doc.createElement(tag); node.textContent = text; return node; };
   const card = element('section'); card.setAttribute('aria-label', 'Account');
-  card.style.cssText = 'box-sizing:border-box;max-width:460px;width:100%;padding:24px;margin:16px auto;background:#101b2c;color:#edf3ff;border:1px solid #33435c;border-radius:16px;font:16px/1.5 system-ui,sans-serif';
+  card.className = 'account-card';
+  const layout = element('div'); layout.className = 'account-entry-layout';
+  const restoring = element('section'); restoring.className = 'account-restoring'; restoring.setAttribute('aria-label', 'Restoring workspace');
+  const restoringTitle = element('h1', 'Restoring your workspace…');
+  const restoringText = element('p', 'Checking your saved session. Your workspace will open automatically.'); restoringText.setAttribute('role', 'status');
+  restoring.append(restoringTitle, restoringText);
+  const hero = element('section'); hero.className = 'entry-story'; hero.setAttribute('aria-label', 'About LabelRoom XR');
+  const eyebrow = element('p', 'A clearer view of your 3D labels'); eyebrow.className = 'entry-eyebrow';
+  const headline = element('h1', 'Inspect the detail.\nKeep every decision.');
+  const description = element('p', 'Review labels against the scan. Preview your changes, save a revision, and export your work.'); description.className = 'entry-description';
+  const scene = element('img'); scene.src = '/review-scene.svg'; scene.alt = ''; scene.width = 600; scene.height = 310; scene.className = 'entry-scene';
+  const steps = element('ol'); steps.className = 'entry-steps';
+  for (const [heading, detail] of [['Inspect', 'Compare boxes, points and nearby frames.'], ['Decide', 'Preview each change before approving it.'], ['Export', 'Keep the source data and review history.']]) { const row = element('li'), strong = element('strong', heading), text = element('span', detail); row.append(strong, text); steps.append(row); }
+  hero.append(eyebrow, headline, description, scene, steps);
+  const brand = element('div'); brand.className = 'account-brand';
+  const mark = element('img'); mark.src = '/brand-mark.svg'; mark.alt = ''; mark.width = 42; mark.height = 42;
+  const wordmark = element('span', 'LabelRoom XR'); wordmark.className = 'brand-wordmark';
+  const brandDetail = element('small', 'Spatial label review'); const brandText = element('div'); brandText.append(wordmark, brandDetail); brand.append(mark, brandText);
   const title = element('h2', 'Open your review workspace');
-  const intro = element('p', 'Sign in with an email code, or enter a temporary demo.');
+  const intro = element('p', 'Sign in or create an account with an email code.');
   const emailForm = element('form'), emailLabel = element('label', 'Email address'), email = element('input');
   email.type = 'email'; email.autocomplete = 'email'; email.maxLength = 254; email.required = true; email.name = 'email';
-  const send = element('button', 'Send code'); send.type = 'submit'; emailLabel.appendChild(email); emailForm.append(emailLabel, send);
+  email.placeholder = 'you@example.com';
+  const emailHint = element('p', 'No password required.'); emailHint.className = 'account-hint';
+  const send = element('button', 'Send code'); send.type = 'submit'; emailLabel.appendChild(email); emailForm.append(emailLabel, emailHint);
   const codeForm = element('form'), codeLabel = element('label', 'Email code'), code = element('input');
   code.type = 'text'; code.inputMode = 'numeric'; code.autocomplete = 'one-time-code'; code.pattern = '[0-9]{6,10}'; code.maxLength = 10; code.required = true; code.name = 'code';
   const verify = element('button', 'Verify code'); verify.type = 'submit'; codeLabel.appendChild(code); codeForm.append(codeLabel, verify);
   const security = element('p'), retry = element('button', 'Retry security check'); retry.type = 'button';
+  const securitySection = element('section'); securitySection.className = 'account-security'; securitySection.setAttribute('aria-label', 'Browser security check');
+  options.captchaElement.className = 'captcha-host'; security.className = 'security-status'; security.setAttribute('role', 'status'); security.setAttribute('aria-live', 'polite');
+  securitySection.append(options.captchaElement, security, retry); emailForm.append(securitySection, send);
+  const divider = element('p', 'or explore the sample'); divider.className = 'account-divider';
   const guest = element('button', 'Enter demo'); guest.type = 'button';
-  const notice = element('p', 'Demo data resets when you sign out. Sign out before switching to a permanent account.');
+  const notice = element('p', 'Demo access lasts 24 hours. Export your work before signing out; signing out ends this browser’s guest access. Sign out before switching to a permanent account.');
   const out = element('button', 'Sign out'); out.type = 'button';
   const status = element('p'); status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite');
   const error = element('p'); error.setAttribute('role', 'alert'); error.style.color = '#ffd5c2';
-  for (const input of [email, code]) input.style.cssText = 'box-sizing:border-box;display:block;width:100%;padding:12px;margin:6px 0 12px;border:1px solid #65748c;border-radius:8px;background:#fff;color:#101b2c;font:inherit';
-  for (const button of [send, verify, guest, retry, out]) button.style.cssText = 'min-height:44px;padding:10px 16px;margin:4px 8px 4px 0;border:1px solid #849dc4;border-radius:8px;font:inherit;cursor:pointer';
-  card.append(title, intro, emailForm, codeForm, options.captchaElement, security, retry, guest, notice, out, status, error); root.replaceChildren(card);
+  send.className = verify.className = 'button-primary'; guest.className = 'button-secondary account-demo'; notice.className = 'account-demo-note'; status.className = 'account-status'; error.className = 'account-error';
+  const support=element('p'); support.className='account-links';
+  for(const [label,path] of [['Help','/help.html'],['Privacy and data','/privacy.html']]){const link=element('a',label);link.href=path;link.target='_blank';link.rel='noopener';support.append(link);}
+  card.append(brand, title, intro, emailForm, codeForm, divider, guest, notice, out, status, error, support); layout.append(hero, card); root.replaceChildren(restoring, layout);
   let disposed = false, pending = false, localError = '';
   let previousPhase: ReturnType<Account['getState']>['phase'] | null = null;
   function render() {
@@ -55,9 +79,11 @@ export function mountLoginPanel(root: HTMLElement, auth: Account, challenge: Cha
     }
     const captcha = challenge.getState().status;
     const signed = state.user !== null, awaiting = state.phase === 'awaiting-code' || state.phase === 'verifying-code';
+    const checking = state.phase === 'checking-session';
+    layout.hidden = checking; restoring.hidden = !checking;
+    card.setAttribute('data-connected', signed ? 'true' : 'false'); root.setAttribute('data-account-state', checking ? 'restoring' : signed ? 'connected' : 'entry'); hero.hidden = signed; divider.hidden = signed;
     title.textContent=signed?'Account':'Open your review workspace'; intro.hidden=signed;
     notice.hidden=signed && state.user?.kind!=='guest';
-    card.style.padding=signed?'12px':'24px'; card.style.margin=signed?'0':'16px auto';
     const busy = pending || !['signed-out', 'awaiting-code', 'signed-in'].includes(state.phase);
     card.setAttribute('aria-busy', busy ? 'true' : 'false');
     emailForm.hidden = signed; codeForm.hidden = signed || !awaiting;
@@ -71,6 +97,8 @@ export function mountLoginPanel(root: HTMLElement, auth: Account, challenge: Cha
     status.textContent = signed ? state.user?.kind === 'guest' ? 'Demo session connected.' : 'Account connected.' : awaiting ? 'Enter the code sent to your email.' : busy ? 'Checking your account…' : 'You are signed out.';
     error.textContent = localError || (state.issue ? feedback[state.issue] : '');
     if (signed || ['signing-out', 'blocked', 'disposed'].includes(state.phase)) { email.value = ''; code.value = ''; }
+    // Initial restoration never mounts a provider widget or exposes entry actions.
+    if (state.phase === 'signed-out' && prior !== state.phase && challenge.getState().status === 'idle') void challenge.start();
   }
   async function command(action: 'send' | 'verify' | 'guest' | 'out') {
     if (disposed || pending) return;
@@ -96,7 +124,7 @@ export function mountLoginPanel(root: HTMLElement, auth: Account, challenge: Cha
   guest.addEventListener('click', enter); out.addEventListener('click', leave); retry.addEventListener('click', reset);
   const unsubAuth = auth.subscribe(render), unsubChallenge = challenge.subscribe(render);
   const every = options.every ?? ((callback, milliseconds) => { const id = setInterval(callback, milliseconds); return () => clearInterval(id); });
-  const stopClock = every(render, 1000); render(); if (!auth.getState().user && !['blocked', 'disposed'].includes(auth.getState().phase)) void challenge.start();
+  const stopClock = every(render, 1000); render();
   return { dispose() {
     if (disposed) return; disposed = true; email.value = ''; code.value = '';
     stopClock(); unsubAuth(); unsubChallenge();

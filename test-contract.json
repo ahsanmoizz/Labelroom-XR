@@ -4,7 +4,7 @@
     "name": "Real input integrity",
     "phase": "A",
     "procedure": "Use a known licensed clip and small independent fixtures. Test valid binary/ASCII conversion, sourceOrigin, source-world yaw mapping, IDs, units/timestamps, missing hashes, malformed JSON and preservation of unknown metadata.",
-    "passCondition": "Valid input parses; mismatched hash/NaN/unsupported quaternion/missing licence fails with location; independent validator reconstructs source coordinates within1e-5m for labels. Float32 points tolerance \u22641e-3m within250m.",
+    "passCondition": "Valid input parses; mismatched hash/NaN/unsupported quaternion/missing licence fails with location; independent validator reconstructs source coordinates within1e-5m for labels. Float32 points tolerance ≤1e-3m within250m.",
     "files": "tests/unit/data.test.ts; tools/converter/test_converter.py"
   },
   {
@@ -19,7 +19,7 @@
     "id": "GEO-01",
     "name": "Coordinates and yaw",
     "phase": "A",
-    "procedure": "Asymmetric box4\u00d72\u00d72 with90\u00b0 yaw; boundary points; inverse transform; sourceOrigin translation;0\u00b0,90\u00b0,180\u00b0 and negative yaw; xyzw quaternion order; pitched quaternion.",
+    "procedure": "Asymmetric box4×2×2 with90° yaw; boundary points; inverse transform; sourceOrigin translation;0°,90°,180° and negative yaw; xyzw quaternion order; pitched quaternion.",
     "passCondition": "Rotated support selects correct points; roundtrip label tolerance1e-5m/radian; pitched/unnormalized quaternions rejected. Display scale never changes source numbers.",
     "files": "tests/unit/geometry.test.ts"
   },
@@ -28,15 +28,15 @@
     "name": "Oriented IoU",
     "phase": "D",
     "procedure": "Analytic cases: identical boxes1; disjoint0; axis overlap1/3; zero-height overlap0; rotated elongated boxes crossing with expected independent polygon result. Compare TS and SQL result vectors.",
-    "passCondition": "Error\u22641e-6 for known volumes. Duplicate only same class/different IDs with IoU>=0.90. Rotated boxes must not use AABB IoU.",
-    "files": "tests/unit/geometry.test.ts; tests/sql/review.sql"
+    "passCondition": "Error≤1e-6 for known volumes. Duplicate only same class/different IDs with IoU>=0.90. Rotated boxes must not use AABB IoU.",
+    "files": "tests/unit/geometry.test.ts; tests/sql/core.mjs; tests/sql/review-budget.mjs"
   },
   {
     "id": "GEO-03",
     "name": "Proposal bounds and occlusion",
     "phase": "D",
     "procedure": "19 vs20 fit points; missing rear surface; two adjacent objects; no eligible points; noisy outlier; rotated candidate; boundary clamp.",
-    "passCondition": "Insufficient input refuses; centre shift\u22640.5m, each size\u00b120%,yaw\u00b115\u00b0; proposal never writes source; support numbers reproducible. Occluded fit warning visible.",
+    "passCondition": "Insufficient input refuses; centre shift≤0.5m, each size±20%,yaw±15°; proposal never writes source; support numbers reproducible. Occluded fit warning visible.",
     "files": "tests/unit/geometry.test.ts"
   },
   {
@@ -61,7 +61,7 @@
     "phase": "B/D",
     "procedure": "Disconnect before/after server commit; retry same request UUID; two tabs same base revision; simultaneous calls; invalid box midway; last-edit undo.",
     "passCondition": "One revision/audit only; no partial save; same request returns same result; stale client conflicts; no lost update; ACK drives Saved.",
-    "files": "tests/sql/review.sql; tests/e2e/review.spec.ts"
+    "files": "tests/sql/core.mjs; tests/sql/review-budget.mjs; tests/e2e/review.spec.ts"
   },
   {
     "id": "SAVE-02",
@@ -69,7 +69,7 @@
     "phase": "B/E",
     "procedure": "Refresh with pending draft; project switch; signout; storage quota error; upload timeout; delete network failure; reload cleanly; expired auth.",
     "passCondition": "User sees pending vs committed; one recoverable draft for same owner/hash; private content cleared at signout; staged upload/delete eventually cleaned; no ready project with missing source.",
-    "files": "tests/e2e/review.spec.ts"
+    "files": "tests/e2e/review.spec.ts; tests/unit/workspace-cache.test.ts; scripts/test-browser-refresh.mjs"
   },
   {
     "id": "SEC-01",
@@ -77,7 +77,7 @@
     "phase": "B/E",
     "procedure": "Two real users + guest. Direct RPC/table/storage attempts using other IDs; guest upload; forged/expired/missing JWT; manipulated origin, huge body, arbitrary tools; inspect built assets and network logs.",
     "passCondition": "Owner isolation holds; client cannot write revisions/budgets directly; unauthorized requests do no privileged work; no private secrets in bundle/logs;60s signed URLs and24h guest cleanup tested.",
-    "files": "tests/e2e/security.spec.ts; tests/sql/review.sql"
+    "files": "tests/e2e/security.spec.ts; tests/sql/core.mjs; tests/sql/review-budget.mjs"
   },
   {
     "id": "AUTH-01",
@@ -116,7 +116,7 @@
     "name": "Hands end to end",
     "phase": "C/E",
     "procedure": "Quest3, controllers unpaired. Fresh open, CAPTCHA, demo/tutorial, enterVR, select, inspect, frame change, isolate/reset, manual edit, preview/reject, approve,undo,export,exit and resume. Test both hands, tracking loss and sleep.",
-    "passCondition": "3 fresh tester attempts complete without controller/desktop rescue; important labels readable; no accidental confirm; every action seated within2ft reach radius; useful task finishes\u226410min; reset returns to safe state.",
+    "passCondition": "3 fresh tester attempts complete without controller/desktop rescue; important labels readable; no accidental confirm; every action seated within2ft reach radius; useful task finishes≤10min; reset returns to safe state.",
     "files": "tests/manual/quest.md; real recording"
   },
   {
@@ -124,7 +124,7 @@
     "name": "Hardware load and responsiveness",
     "phase": "C/E",
     "procedure": "Record headset/browser/build. Real maximum valid frame200kpoints/100boxes;10frames permitted but only current+next point buffers in memory. Run10min after thermal warmup, including frame changes and worker checks.",
-    "passCondition": "No sustained1s interval below60fps during steady review; p95 app frame interval\u226416.7ms excluding explicit initial load; no memory crash. Target72fps. Frame swap\u22641s warmed; analysis\u22642s; selected UI response\u2264150ms. Record actual numbers, not display refresh alone.",
+    "passCondition": "No sustained1s interval below60fps during steady review; p95 app frame interval≤16.7ms excluding explicit initial load; no memory crash. Target72fps. Frame swap≤1s warmed; analysis≤2s; selected UI response≤150ms. Record actual numbers, not display refresh alone.",
     "files": "tests/manual/quest.md; performance CSV"
   },
   {
@@ -139,8 +139,8 @@
     "id": "USER-01",
     "name": "Value evidence",
     "phase": "E",
-    "procedure": "Three intended reviewers;6 matched tasks each,3desktop and3VR, alternate order, independent correct-answer reference. Include a valid occluded label that should be kept. Collect time, errors, comfort1\u20135 and useful/not useful explanation.",
-    "passCondition": "Each user completes useful export; total accuracy\u226590% with0 destructive changes on the valid/occluded control;\u22652/3 call the difficult-review loop useful. Report raw median time and limitations. Claim speed advantage only if observed without lower accuracy.",
+    "procedure": "Three intended reviewers;6 matched tasks each,3desktop and3VR, alternate order, independent correct-answer reference. Include a valid occluded label that should be kept. Collect time, errors, comfort1–5 and useful/not useful explanation.",
+    "passCondition": "Each user completes useful export; total accuracy≥90% with0 destructive changes on the valid/occluded control;≥2/3 call the difficult-review loop useful. Report raw median time and limitations. Claim speed advantage only if observed without lower accuracy.",
     "files": "tests/manual/reviewer-study.csv"
   },
   {

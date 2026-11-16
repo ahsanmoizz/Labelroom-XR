@@ -1,0 +1,173 @@
+name: UI readability and review regression
+on:
+  push:
+    branches: [main, deadline/complete-guest-demo, deadline/ui-readability, deadline/final-acceptance, deadline/auth-entry, deadline/current-guest-check, deadline/session-xr, deadline/workspace-refocus, deadline/graphite-workspace, deadline/frame-navigation, deadline/refresh-ai, deadline/xr-entry, deadline/ai-evidence, deadline/ai-readable, deadline/view-tools, fix/submission-validation-20261116]
+  workflow_dispatch:
+    inputs:
+      record_live_demo:
+        description: 'Attempt a real hosted demo recording; CAPTCHA may require a headed PC'
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: ui-checks-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  review-ui:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: 24.19.0
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: mkdir -p artifacts
+      - run: npm run typecheck
+      - run: npm test -- --reporter=json --outputFile=artifacts/unit.json
+      - name: Independent Python converter and export validation
+        run: python3 -m unittest discover -s tools/converter -p test_converter.py -v > artifacts/converter.log 2>&1
+      - name: Production dependency advisories
+        run: npm run audit:prod > artifacts/production-audit.log 2>&1
+      - run: npx playwright install --with-deps chromium
+      - name: Public browser validation command (DOM, recovery, security and emulated XR)
+        run: npm run test:e2e
+        env:
+          LABELXR_E2E_OUTPUT_DIR: ${{ github.workspace }}/artifacts/e2e
+          LABELXR_E2E_REPORT_DIR: ${{ github.workspace }}/artifacts
+          LABELXR_LAYOUT_SCREENSHOTS: ${{ github.workspace }}/artifacts/ui-captures
+          LABELXR_AUTH_SCREENSHOTS: ${{ github.workspace }}/artifacts/auth-captures
+      - name: Build with public fixture configuration only
+        run: npm run build
+        env:
+          VITE_SUPABASE_URL: https://aawwmcbhyyokkhhvcfmv.supabase.co
+          VITE_APP_ORIGIN: https://guest-staging.labelroom-xr.pages.dev
+          VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_fixture_build_only
+          VITE_TURNSTILE_SITE_KEY: '0x4AAAA000000000000000000'
+          VITE_GUEST_DEMO: 'true'
+      - run: npm run pack:check && npm run preflight
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        if: always()
+        with:
+          name: ui-readability-${{ github.sha }}
+          path: artifacts/
+          if-no-files-found: warn
+          retention-days: 3
+
+  readable-windows:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: 24.19.0
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: New-Item -ItemType Directory -Path artifacts -Force | Out-Null
+      - name: Windows module path parser and exact-specifier regression
+        run: npm test -- tests/unit/browser-module-source.test.ts --reporter=json --outputFile=artifacts/windows-path.json
+      - name: Exact native publisher entrypoints in Windows Edge
+        shell: pwsh
+        run: |
+          $edge = Join-Path ${env:ProgramFiles(x86)} 'Microsoft\Edge\Application\msedge.exe'
+          if (-not (Test-Path -LiteralPath $edge -PathType Leaf)) { throw 'Native Edge is required.' }
+          $env:LABELXR_CHROMIUM_PATH = $edge
+          node scripts/test-browser-review.mjs "$env:GITHUB_WORKSPACE\artifacts\windows-browser.json"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/test-browser-auth.mjs "$env:GITHUB_WORKSPACE\artifacts\windows-auth.json"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/test-browser-session.mjs "$env:GITHUB_WORKSPACE\artifacts\windows-session.json"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/test-browser-xr.mjs "$env:GITHUB_WORKSPACE\artifacts\windows-xr.json"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/test-browser-refresh.mjs "$env:GITHUB_WORKSPACE\artifacts\windows-refresh.json"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/test-browser-ai-readable.mjs "$env:GITHUB_WORKSPACE\artifacts\windows-ai-readable.json"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/test-browser-view-tools.mjs "$env:GITHUB_WORKSPACE\artifacts\windows-view-tools.json"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        if: always()
+        with:
+          name: ai-readable-windows-${{ github.sha }}
+          path: artifacts/
+          if-no-files-found: warn
+          retention-days: 3
+
+  database-validation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f
+        with:
+          node-version: 24.19.0
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Install isolated pinned PostgreSQL runtime
+        run: npm install --prefix "$RUNNER_TEMP/labelxr-sql-runtime" --ignore-scripts --no-audit --no-fund @electric-sql/pglite@0.3.14
+      - name: Core, review, AI context, guest lifecycle and scheduler fixtures
+        run: npm run test:sql -- --runtime "$RUNNER_TEMP/labelxr-sql-runtime/node_modules/@electric-sql/pglite" --output-dir "$RUNNER_TEMP/labelxr-sql-reports"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        if: always()
+        with:
+          name: database-validation-${{ github.sha }}
+          path: ${{ runner.temp }}/labelxr-sql-reports/
+          if-no-files-found: warn
+          retention-days: 7
+
+  public-readback:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f
+        with:
+          node-version: 24.19.0
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Compare production assets against a reproducible build
+        run: node scripts/verify-public-build.mjs https://labelroom-xr.pages.dev "$RUNNER_TEMP/labelxr-public-readback"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        if: always()
+        with:
+          name: public-readback-${{ github.sha }}
+          path: ${{ runner.temp }}/labelxr-public-readback/
+          if-no-files-found: warn
+          retention-days: 7
+
+  live-demo-recording:
+    needs: [review-ui, readable-windows, database-validation, public-readback]
+    if: github.event_name == 'workflow_dispatch' && inputs.record_live_demo == true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f
+        with:
+          node-version: 24.19.0
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npx playwright install --with-deps chromium
+      - name: Record the real hosted anonymous demo with browser Quest emulation
+        run: node scripts/record-live-demo.mjs "$RUNNER_TEMP/labelxr-live-demo"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        if: always()
+        with:
+          name: live-demo-recording-${{ github.sha }}
+          path: ${{ runner.temp }}/labelxr-live-demo/
+          if-no-files-found: warn
+          retention-days: 7

@@ -2,13 +2,15 @@
 project_id = "labelroom-xr"
 [functions.project-admin]
 enabled = true
-verify_jwt = true
+# Auth getUser verifies the caller before any RPC; supports current ES256 signing keys.
+verify_jwt = false
 entrypoint = "./functions/project-admin/index.ts"
 import_map = "./functions/project-admin/deno.json"
 
 [functions.review-commit]
 enabled = true
-verify_jwt = true
+# The handler re-verifies Auth and commits through the caller's bearer/RLS.
+verify_jwt = false
 entrypoint = "./functions/review-commit/index.ts"
 import_map = "./functions/review-commit/deno.json"
 
@@ -18,3 +20,17 @@ enabled = true
 verify_jwt = false
 entrypoint = "./functions/agent/index.ts"
 import_map = "./functions/agent/deno.json"
+
+# Deploy only to the verified staging project with an explicit project ref.
+[functions.demo-provision]
+enabled = true
+verify_jwt = true
+entrypoint = "./functions/demo-provision/index.ts"
+import_map = "./functions/demo-provision/deno.json"
+
+# Cron-only bearer verification is performed before any privileged work.
+[functions.project-cleanup]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/project-cleanup/index.ts"
+import_map = "./functions/project-cleanup/deno.json"

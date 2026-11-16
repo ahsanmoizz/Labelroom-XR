@@ -17,7 +17,7 @@ const COPY = {
   'origin-mismatch': ['Application address does not match', 'Open the configured application address, or ask the owner to correct its settings.'],
   connecting: ['Preparing the connection', 'Loading the account client.'],
   starting: ['Starting the workspace', 'Connection settings passed. Preparing the 3D workspace.'],
-  ready: ['Workspace scaffold ready', 'The account client and 3D scaffold started. Email sign-in, guest access and review controls are not available in this build yet.'],
+  ready: ['Workspace ready', 'Choose a saved project or open the guest demo to inspect, review and export labels.'],
   'connection-failed': ['Connection client could not start', 'Reload to try again. If this continues, ask the application owner to check its setup.'],
   'world-failed': ['3D workspace could not start', 'Reload to try again in a supported browser. Account access and review remain unavailable.']
 } as const;

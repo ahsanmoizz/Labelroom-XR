@@ -2,6 +2,7 @@
 import { WorkspaceCleanupError, type WorkspaceResource } from '../app/host.js';
 
 export interface SceneResource {
+  readonly xrSession?: { end(): Promise<void> };
   exitXR(): void;
   destroy(): void;
   renderer: { dispose(): void; domElement: { remove(): void } };
@@ -13,7 +14,7 @@ export function ownScene(world: SceneResource): WorkspaceResource {
   let closed = false;
   return { dispose() {
     if (closed) return; closed = true; let failed = false;
-    for (const close of [() => world.exitXR(), () => world.destroy(),
+    for (const close of [() => { if (world.xrSession) void world.xrSession.end().catch(() => {}); else world.exitXR(); }, () => world.destroy(),
       () => world.renderer.dispose(), () => world.renderer.domElement.remove()]) {
       try { close(); } catch { failed = true; }
     }

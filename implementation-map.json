@@ -1,0 +1,104 @@
+{
+  "schema": "labelxr-current-implementation-map/v1",
+  "checkedDate": "2026-11-16",
+  "originalContract": "build-contract.json",
+  "scope": "Path reconciliation only. Replacement status identifies current source, not full hosted, physical or study acceptance.",
+  "entries": [
+    {
+      "originalPath": "src/app/lifecycle.ts",
+      "status": "replacement",
+      "currentPaths": ["src/xr/hand-gate.ts", "src/xr/spatial-review.ts", "src/ui/xr-entry.ts", "src/app/host.ts"],
+      "note": "Pause, tracking cancellation, session teardown and account ownership are implemented across these modules. Physical sleep/tracking acceptance remains deferred."
+    },
+    {
+      "originalPath": "src/services/demo.ts",
+      "status": "replacement",
+      "currentPaths": ["src/services/projects.ts", "supabase/functions/_shared/demo-provision.ts", "supabase/functions/demo-provision/entry.ts"],
+      "note": "Guest provision/reset uses the common projects client and dedicated bounded Edge handler, not a separate frontend demo service."
+    },
+    {
+      "originalPath": "src/ai/context.ts",
+      "status": "replacement",
+      "currentPaths": ["src/ai/protocol.ts", "src/ai/tools.ts", "supabase/functions/_shared/agent.ts", "supabase/functions/_shared/agent-client.ts"],
+      "note": "Bounded model scope, typed tools and measured results replace the planned standalone context serializer."
+    },
+    {
+      "originalPath": "src/xr/review-component.ts",
+      "status": "replacement",
+      "currentPaths": ["src/xr/review-system.ts", "src/xr/box-picking.ts", "src/ui/spatial-review-port.ts"],
+      "note": "Stable source IDs and selection are supplied by view/picking/port modules. The production implementation does not use the planned ReviewTarget ECS component."
+    },
+    {
+      "originalPath": "src/xr/hand-system.ts",
+      "status": "replacement",
+      "currentPaths": ["src/xr/hand-gate.ts", "src/xr/spatial-review.ts", "tests/unit/spatial-review.test.ts", "scripts/test-browser-xr.mjs"],
+      "note": "Native WebXR select events and explicit tracked-hand gating replace the planned IWSDK Pressed system. Both-hand/cancel software checks pass; physical input remains unmeasured."
+    },
+    {
+      "originalPath": "src/xr/panel-system.ts",
+      "status": "replacement",
+      "currentPaths": ["src/xr/spatial-review.ts", "src/ui/spatial-review-port.ts", "src/ui/review-controls.ts"],
+      "note": "The world-anchored canvas panel invokes the same typed review controller as desktop controls. It replaces the planned UIKit panel system."
+    },
+    {
+      "originalPath": "src/ui/accessibility.ts",
+      "status": "partial",
+      "currentPaths": ["src/xr/spatial-review.ts", "src/ui/workspace-shell.ts", "src/ui/workspace.css"],
+      "note": "Large labelled controls, two-hand support and responsive layout exist. No separate persistent text-scale/contrast settings module or physical readability/reach measurements are present."
+    },
+    {
+      "originalPath": "public/ui/review.uikitml",
+      "status": "replacement",
+      "currentPaths": ["src/xr/spatial-review.ts"],
+      "note": "Programmatic spatial canvas buttons replace the planned UIKitML asset. The original layout geometry is a design target, not an asserted physical acceptance result."
+    },
+    {
+      "originalPath": "supabase/functions/_shared/cleanup.ts",
+      "status": "replacement",
+      "currentPaths": ["supabase/functions/_shared/project-cleanup.ts", "supabase/functions/_shared/projects.ts"],
+      "note": "Service-only bounded cleanup rechecks eligibility before deletion. Actual production scheduler responses additionally show three completed eligible cleanups."
+    },
+    {
+      "originalPath": "tools/converter/make_demo.py",
+      "status": "pending",
+      "currentPaths": ["tools/converter/convert.py", "tools/converter/validate.py"],
+      "note": "The licensed prepared demo and its disclosures exist in the supplied evidence, but the planned reusable fault-injection generator is absent from current source. Conversion/validation do not replace that generator."
+    },
+    {
+      "originalPath": "tests/sql/review.sql",
+      "status": "replacement",
+      "currentPaths": ["tests/sql/core.mjs", "tests/sql/review-budget.mjs", "scripts/test-sql.mjs"],
+      "note": "Explicit pinned PGlite schema/claims/grants/transaction assertions replace the obsolete SQL entrypoint. They are synthetic fixtures, not destructive hosted tests."
+    },
+    {
+      "originalPath": ".github/workflows/ci.yml",
+      "status": "partial",
+      "currentPaths": [".github/workflows/ui-checks.yml"],
+      "note": "Current CI runs source, browser, Windows, converter, dependency, SQL and served-byte checks. A live two-account staging acceptance job and automated backup/restore rehearsal are not supplied by this workflow."
+    },
+    {
+      "originalPath": "scripts/deploy.ps1",
+      "status": "partial",
+      "currentPaths": ["docs/release-completion.md", "docs/validation.md", "scripts/verify-public-build.mjs"],
+      "note": "Deployment is documented as guarded operator/provider work and current publication has a read-only byte comparison. The planned consolidated deploy.ps1 is absent; the verifier does not deploy."
+    },
+    {
+      "originalPath": "docs/privacy.html",
+      "status": "replacement",
+      "currentPaths": ["public/privacy.html"],
+      "note": "The public site serves the actual privacy page from public/privacy.html, canonical route /privacy."
+    },
+    {
+      "originalPath": "docs/help.html",
+      "status": "replacement",
+      "currentPaths": ["public/help.html"],
+      "note": "The public site serves the actual help page from public/help.html, canonical route /help."
+    },
+    {
+      "originalPath": "supabase/functions/cleanup/index.ts",
+      "status": "replacement",
+      "currentPaths": ["supabase/functions/project-cleanup/index.ts", "supabase/functions/project-cleanup/entry.ts", "supabase/migrations/20261114140647_bounded_cleanup_schedule.sql"],
+      "note": "The deployed project-cleanup endpoint uses a separate exact bounded bearer, no browser origin, private Vault dispatcher and 15-minute Cron job. This supersedes the originally planned X-Cleanup-Secret interface."
+    }
+  ]
+}

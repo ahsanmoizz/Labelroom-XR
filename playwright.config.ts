@@ -1,2 +1,13 @@
 import { defineConfig } from '@playwright/test';
-export default defineConfig({testDir:'tests/e2e',use:{baseURL:'http://localhost:4173'},webServer:{command:'npm run preview -- --host 127.0.0.1',url:'http://localhost:4173',reuseExistingServer:false}});
+// Each suite starts its own loopback-only server and browser. These checks use
+// synthetic services; they do not target production or require provider tokens.
+export default defineConfig({
+  testDir: 'tests/e2e',
+  testMatch: '**/*.spec.ts',
+  fullyParallel: false,
+  workers: 1,
+  retries: 0,
+  timeout: 300_000,
+  outputDir: process.env.LABELXR_E2E_OUTPUT_DIR || 'test-results',
+  reporter: process.env.CI ? 'line' : 'list',
+});

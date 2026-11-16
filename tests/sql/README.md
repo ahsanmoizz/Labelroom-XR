@@ -1,6 +1,18 @@
 <!-- LABELXR-CORE-SQL-TEST-README-v1 -->
 # Core database tests
 
+## Run the current SQL validation set
+
+Install `@electric-sql/pglite@0.3.14` into a separate temporary npm prefix, then run all six suites with the pinned package root and a new absolute report directory outside the repository:
+
+```sh
+npm run test:sql -- --runtime /absolute/sql-runtime/node_modules/@electric-sql/pglite --output-dir /absolute/reports/new-sql-run
+```
+
+The command builds the TypeScript geometry/review reference, runs each existing fixture, checks its result and case count, and writes `summary.json`. It does not install packages, contact Supabase, activate Cron or execute an HTTP request.
+
+Guest lifecycle validation intentionally excludes only `20261114140647_bounded_cleanup_schedule.sql`, whose `pg_cron`/`pg_net` activation is unavailable in PGlite. The dedicated scheduler suite applies that same migration with explicit synthetic Vault/pg_net fixtures and only the two extension activation statements omitted. Both suites are mandatory in CI. Production migrations are unchanged.
+
 Run `core.mjs` with Node 24 and an explicit PGlite 0.3.14 package directory. The 108 SQL cases preserve the accepted Step090 case bodies. They execute PostgreSQL 17.5 grants, RLS, triggers, constraints and rollback against synthetic Supabase auth/storage schemas. They never connect to Supabase or install a package automatically.
 
 The runtime can be the unchanged private Step090 `vendor/pglite` directory. An independent developer may explicitly install `@electric-sql/pglite@0.3.14` into a separate temporary npm prefix, outside this repository, then point `--runtime` at that package's root. The runner checks the SHA-256 values of all twelve required upstream files before import. Extra unreferenced upstream package files are allowed. No application dependency or lockfile change is required.

@@ -23,7 +23,7 @@ export function mountReviewWorkspace(root:HTMLElement,options:ReviewStoreOptions
  const store=createReviewStore(options),panel=mountReviewControls(root,{formCache:options.formCache??(globalThis.indexedDB?createIndexedDbFormCache():undefined),store,signal:options.signal,newId:options.newId,focus:options.focus,download:options.download,analysis:options.analysis,agent:options.agent,compareOriginal(show){const s=store.snapshot(),state=store.state();if(s&&state.phase==='proposed'&&state.command)options.preview?.(s,show?null:state.command as ReviewCommand)}});let seen:ReviewSnapshot|undefined,previewKey='',closed=false;
  const unsubscribe=store.subscribe(()=>{const state=store.state(),s=store.snapshot();if(closed)return;try{options.phase?.(state.phase);if(!s)return;if(state.phase==='proposed'&&state.command){const key=state.requestId??'';if(key!==previewKey){options.preview?.(s,state.command as ReviewCommand);previewKey=key}}else if(state.phase==='ready'){if(previewKey){options.preview?.(s,null);previewKey=''}if(s!==seen){options.present?.(s);seen=s}}}catch{store.close();panel.block('Saved review could not be displayed. Reload this workspace before continuing.')}});
  function dispose(){if(closed)return;closed=true;options.signal.removeEventListener('abort',dispose);unsubscribe();store.close();panel.dispose();seen=undefined}
- options.signal.addEventListener('abort',dispose,{once:true});if(options.signal.aborted)dispose();else void store.reload();return{store,dispose,selectFrame:panel.selectFrame,spatial:panel.spatial};
+ options.signal.addEventListener('abort',dispose,{once:true});if(options.signal.aborted)dispose();else void store.reload();return{store,dispose,selectFrame:panel.selectFrame,selectObject:panel.selectObject,spatial:panel.spatial};
 }
 
 export interface MemberReviewWorkspaceOptions {
@@ -33,6 +33,12 @@ export interface MemberReviewWorkspaceOptions {
 }
 /** The verified account host supplies the owner and abort signal; both services reverify the caller. */
 export function mountMemberReviewWorkspace(root:HTMLElement,options:MemberReviewWorkspaceOptions){
- const{client,config,original}=options,scope={ownerId:options.ownerId,projectId:options.projectId,sourceBundleSha256:original.bundleSha256},reviews=createReviewService(createSupabaseReviewSessions(client,config)),snapshots=createReviewSnapshotService(createSupabaseReviewSnapshotSessions(client,config));
+ return mountSavedReviewWorkspace(root,options,'private');
+}
+export function mountGuestReviewWorkspace(root:HTMLElement,options:MemberReviewWorkspaceOptions){
+ return mountSavedReviewWorkspace(root,options,'demo');
+}
+function mountSavedReviewWorkspace(root:HTMLElement,options:MemberReviewWorkspaceOptions,kind:'private'|'demo'){
+ const{client,config,original}=options,scope={ownerId:options.ownerId,projectId:options.projectId,sourceBundleSha256:original.bundleSha256},reviews=createReviewService(createSupabaseReviewSessions(client,config)),snapshots=createReviewSnapshotService(createSupabaseReviewSnapshotSessions(client,config,globalThis.fetch,kind));
  return mountReviewWorkspace(root,{scope,original,signal:options.signal,cache:options.cache??createIndexedDbDraftCache(),load:signal=>snapshots.load(scope,original,signal),audit:(snapshot,signal)=>snapshots.audit(snapshot,signal),commit:(bytes,context,signal)=>reviews.commit(bytes,context,signal),phase:options.phase,present:options.present,preview:options.preview,focus:options.focus,download:options.download,agent:{async request(input,signal){const {createAgentService}=await import('../services/agent');return createAgentService(client,config,options.ownerId).request(input,signal)}},analysis:options.analysis??createReviewAnalysisClient()});
 }

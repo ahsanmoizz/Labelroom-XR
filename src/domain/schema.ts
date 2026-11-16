@@ -55,7 +55,7 @@ export const manifestSchema = z.strictObject({
 export type BundleManifest = z.infer<typeof manifestSchema>;
 export type ManifestErrorCode = 'INPUT' | 'BYTE_LIMIT' | 'UTF8' | 'JSON' | 'SCHEMA';
 export class ManifestParseError extends Error {
-  readonly name = 'ManifestParseError';
+  override readonly name = 'ManifestParseError';
   constructor(readonly code: ManifestErrorCode, readonly filePath: string,
     readonly field: string, readonly frameId: string | null, detail: string) {
     super(`${filePath} | ${field}: ${detail}`);
@@ -93,7 +93,7 @@ function checkJsonKeys(text: string, filePath: string, maxDepth: number): void {
 }
 
 export class DataJsonParseError extends Error {
-  readonly name = 'DataJsonParseError';
+  override readonly name = 'DataJsonParseError';
   constructor(readonly code: ManifestErrorCode, readonly filePath: string, readonly detail: string) {
     super(`${filePath} | file: ${detail}`);
   }

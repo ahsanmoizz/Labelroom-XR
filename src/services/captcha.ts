@@ -5,7 +5,7 @@ export interface TurnstileApi {
     'expired-callback': () => void; 'timeout-callback': () => void;
     'error-callback': () => void; 'unsupported-callback': () => void;
     'response-field': false; retry: 'never'; 'refresh-expired': 'manual';
-    theme: 'auto'; size: 'flexible';
+    theme: 'auto'; size: 'flexible' | 'compact';
   }): string | undefined;
   remove(id: string): void;
 }
@@ -48,6 +48,8 @@ export function createChallenge(element: HTMLElement, sitekey: string, load: () 
   let status: ChallengeStatus = 'idle', token: string | null = null, issued = 0, last = 0;
   let api: TurnstileApi | undefined, id: string | undefined, generation = 0, disposed = false, accepting = false;
   const listeners = new Set<() => void>();
+  let renderedSize: 'flexible' | 'compact' = 'flexible';
+  const widgetSize = () => { const width = element.getBoundingClientRect?.().width ?? 0; return width > 0 && width < 300 ? 'compact' as const : 'flexible' as const; };
   function time() { try { const n = now(); if (!Number.isFinite(n)) return Infinity; last = Math.max(last, n); return last; } catch { return Infinity; } }
   function notify() { for (const f of [...listeners]) { try { f(); } catch { /* Observer isolation. */ } } }
   function expire() { if (token && time() - issued >= 240000) { token = null; accepting = false; status = 'expired'; } }
@@ -61,8 +63,9 @@ export function createChallenge(element: HTMLElement, sitekey: string, load: () 
       if (disposed || epoch !== generation) return;
       api = loaded; status = 'waiting'; accepting = true;
       const stop = (next: 'expired' | 'error') => { if (disposed || epoch !== generation) return; accepting = false; token = null; status = next; notify(); };
+      renderedSize = widgetSize();
       const widget = loaded.render(element, {
-        sitekey, 'response-field': false, retry: 'never', 'refresh-expired': 'manual', theme: 'auto', size: 'flexible',
+        sitekey, 'response-field': false, retry: 'never', 'refresh-expired': 'manual', theme: 'auto', size: renderedSize,
         callback(value) {
           if (disposed || epoch !== generation || !accepting) return;
           if (typeof value !== 'string' || !value.length || value.length > 2048 || /[\s\x00-\x1f\x7f]/.test(value)) { stop('error'); return; }
@@ -76,12 +79,15 @@ export function createChallenge(element: HTMLElement, sitekey: string, load: () 
       id = widget; notify();
     } catch { if (!disposed && epoch === generation) { accepting = false; token = null; status = 'error'; notify(); } }
   }
+  const Observer = element.ownerDocument.defaultView?.ResizeObserver;
+  const observer = Observer ? new Observer(() => { if (!disposed && id !== undefined && element.getBoundingClientRect().width > 0 && widgetSize() !== renderedSize) void reset(); }) : undefined;
+  observer?.observe(element);
   return {
     start: reset, reset,
     pause() { if (disposed) return; generation++; token = null; accepting = false; const old = id; id = undefined; try { if (old !== undefined) api?.remove(old); } catch { /* Revoke local state even when provider cleanup fails. */ } finally { element.replaceChildren(); status = 'idle'; notify(); } },
     getState() { expire(); return Object.freeze({ status }); },
     subscribe(f) { if (disposed) return () => {}; listeners.add(f); return () => { listeners.delete(f); }; },
     takeToken() { expire(); const value = token; token = null; if (value) { accepting = false; if (!disposed) status = 'waiting'; notify(); } return value; },
-    dispose() { if (disposed) return; disposed = true; generation++; token = null; accepting = false; status = 'disposed'; try { if (id !== undefined) api?.remove(id); } catch { /* Always clear the owned container below. */ } finally { id = undefined; element.replaceChildren(); notify(); listeners.clear(); } }
+    dispose() { if (disposed) return; disposed = true; observer?.disconnect(); generation++; token = null; accepting = false; status = 'disposed'; try { if (id !== undefined) api?.remove(id); } catch { /* Always clear the owned container below. */ } finally { id = undefined; element.replaceChildren(); notify(); listeners.clear(); } }
   };
 }

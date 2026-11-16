@@ -1,0 +1,9 @@
+# Public release delta
+
+Production inventory on2026-11-14 has the first six migrations,26 database function definitions matching those migrations, one ready private project, private project-data storage and server-side Turnstile enabled. Protected staging has all eight prior reviewed migrations and completed guest lifecycle/frame/connection acceptance. Production has no demo seed, demo-provision function or project-cleanup function.
+
+The remaining repository change is the CLI-generated20261114140647_bounded_cleanup_schedule migration. It enables the documented pg_cron/pg_net extensions, adds an owner-only private dispatcher and credential-free request-id log. Credentials and job activation are separate native release steps. The migration itself schedules nothing and updates/deletes no project data. The dispatcher resolves a separate bounded bearer from Vault, queues only the configured Supabase cleanup endpoint with limit10, and retains dispatch IDs for24hours. No browser or service role receives dispatcher/table privileges.
+
+Seven local PostgreSQL scheduler tests use synthetic Vault and pg_net ports. They establish SQL validation, grants, payload and logging behavior, not hosted extension activation or an actual Cron execution. Production observations must separately verify an actual successful scheduled response before the15-minute maintenance schedule is accepted. Existing private project/version/history/object fingerprints and all Auth settings must remain unchanged.
+
+Frontend, login, session, XR, review and existing Edge Function source files remain byte-identical to commit1c2c3f7837b6a64346c21504799606b8e4dc2f76. The public build explicitly targets production, enables VITE_GUEST_DEMO and excludes preview emulator injection. No source release gates are weakened. Physical/reviewer/video/eligibility/form evidence remains a separate responsibility.

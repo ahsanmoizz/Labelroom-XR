@@ -20,7 +20,7 @@ export interface CommittedExportSnapshot {
   review: Uint8Array;
 }
 export class BundleExportError extends Error {
-  readonly name = 'BundleExportError';
+  override readonly name = 'BundleExportError';
   constructor(readonly code: 'STATE' | 'INPUT' | 'SCOPE' | 'LIMIT', detail: string) { super(detail); }
 }
 const fail = (code: BundleExportError['code'], message: string): never => { throw new BundleExportError(code, message); };

@@ -6,7 +6,7 @@ import type { Challenge } from '../services/captcha.js';
 import { mountLoginPanel } from '../ui/login.js';
 import { renderStartup } from '../ui/setup.js';
 
-export interface WorkspaceResource { dispose(): void }
+export interface WorkspaceResource { dispose(): void; forget?(): void }
 export interface WorkspaceContext { readonly user: NonNullable<AuthState['user']>; readonly config: Readonly<PublicAppConfig> }
 export class WorkspaceCleanupError extends Error {
   constructor() { super('Workspace could not be cleared.'); }
@@ -73,7 +73,8 @@ export function createApplicationHost(dependencies: HostDependencies) {
     try {
       scope.own(() => {
         controller.abort(); frame.remove(); loading.remove();
-        const owned = resource; resource = undefined; owned?.dispose();
+        const owned = resource; resource = undefined;
+        try { if (!disposed) owned?.forget?.(); } finally { owned?.dispose(); }
       });
     } catch { closeAfterFailure(); return; }
     // A new world waits for any cancelled world's creation/late cleanup to settle.
