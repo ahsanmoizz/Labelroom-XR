@@ -1,7 +1,7 @@
-name: Live staging integration
+name: Live staging AI verification
 on:
   push:
-    branches: [main, fix/finish-software-20261116]
+    branches: [verify/ai-smoke-20261117]
     paths: ['scripts/test-live-staging.mjs', '.github/workflows/staging-acceptance.yml']
   workflow_dispatch:
     inputs:
@@ -29,7 +29,7 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - name: Normal caller-owned staging workflow
         env:
-          RUN_AI_SMOKE: ${{ inputs.run_ai_smoke == true && 'true' || 'false' }}
+          RUN_AI_SMOKE: 'true'
         run: |
           args=()
           if [ "$RUN_AI_SMOKE" = true ]; then args+=(--run-ai); fi
