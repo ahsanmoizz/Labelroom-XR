@@ -60,9 +60,9 @@
     },
     {
       "originalPath": "tools/converter/make_demo.py",
-      "status": "pending",
-      "currentPaths": ["tools/converter/convert.py", "tools/converter/validate.py"],
-      "note": "The licensed prepared demo and its disclosures exist in the supplied evidence, but the planned reusable fault-injection generator is absent from current source. Conversion/validation do not replace that generator."
+      "status": "implemented",
+      "currentPaths": ["tools/converter/make_demo.py", "tools/converter/test_make_demo.py", "tools/converter/demo-fault-plan.example.json"],
+      "note": "The offline generator validates canonical input, requires explicit distinct targets, preserves point/licence bytes and unrelated metadata, injects three disclosed faults, and writes deterministic output plus complete world-space references. Synthetic regression cases verify its numerical and refusal behavior. External rights, natural annotation correctness and a fresh independent real-clip workflow remain unverified."
     },
     {
       "originalPath": "tests/sql/review.sql",

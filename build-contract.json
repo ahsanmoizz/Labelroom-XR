@@ -572,7 +572,7 @@
       "steps": "Keep points unchanged; inject known 0.4m box offset, duplicate box and one-frame size jump. Mark each artificial edit in review-demo-faults.json. Retain untouched source for comparison.",
       "fail": "Never describe injected defects as discovered natural dataset errors.",
       "test": "DEMO-01, USER-01",
-      "status": "planned"
+      "status": "implemented"
     },
     {
       "path": "tools/converter/test_converter.py",

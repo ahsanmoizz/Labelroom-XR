@@ -1,7 +1,7 @@
 name: UI readability and review regression
 on:
   push:
-    branches: [main, deadline/complete-guest-demo, deadline/ui-readability, deadline/final-acceptance, deadline/auth-entry, deadline/current-guest-check, deadline/session-xr, deadline/workspace-refocus, deadline/graphite-workspace, deadline/frame-navigation, deadline/refresh-ai, deadline/xr-entry, deadline/ai-evidence, deadline/ai-readable, deadline/view-tools, fix/submission-validation-20261116]
+    branches: [main, deadline/complete-guest-demo, deadline/ui-readability, deadline/final-acceptance, deadline/auth-entry, deadline/current-guest-check, deadline/session-xr, deadline/workspace-refocus, deadline/graphite-workspace, deadline/frame-navigation, deadline/refresh-ai, deadline/xr-entry, deadline/ai-evidence, deadline/ai-readable, deadline/view-tools, fix/submission-validation-20261116, fix/continuation-demo-tools-20261116]
   workflow_dispatch:
     inputs:
       record_live_demo:
@@ -30,7 +30,7 @@ jobs:
       - run: npm run typecheck
       - run: npm test -- --reporter=json --outputFile=artifacts/unit.json
       - name: Independent Python converter and export validation
-        run: python3 -m unittest discover -s tools/converter -p test_converter.py -v > artifacts/converter.log 2>&1
+        run: python3 -m unittest discover -s tools/converter -p 'test_*.py' -v > artifacts/converter.log 2>&1
       - name: Production dependency advisories
         run: npm run audit:prod > artifacts/production-audit.log 2>&1
       - run: npx playwright install --with-deps chromium
